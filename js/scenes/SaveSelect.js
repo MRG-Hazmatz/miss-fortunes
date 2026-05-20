@@ -1,3 +1,6 @@
+import Phaser from 'phaser';
+import { GameState } from '../state.js';
+
 // SaveSelect.js — three-slot profile picker shown after Boot.
 //
 // Visual: warm-amber/parchment cards arranged horizontally (a row of three
@@ -10,7 +13,7 @@
 //   - CREATE on an empty slot  → name-input modal; ENTER confirms, fades to Parlor.
 //   - × on a filled slot       → confirmation modal, then deletes.
 
-class SaveSelect extends Phaser.Scene {
+export class SaveSelect extends Phaser.Scene {
   constructor() {
     super('SaveSelect');
 

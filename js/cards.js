@@ -17,7 +17,7 @@ const SUITS = [
 
 const RANKS = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
 
-class Card {
+export class Card {
   constructor(scene, suit, rank, x, y) {
     this.scene = scene;
     this.suit = suit;  // SUITS entry
@@ -187,7 +187,7 @@ class Card {
 }
 
 // Build + shuffle helpers
-const Deck = {
+export const Deck = {
   build() {
     const cards = [];
     for (const suit of SUITS) {
@@ -210,7 +210,7 @@ const Deck = {
 
 // Blackjack hand scoring. Cards array of {suit, rank}.
 // Ace is 11 unless that would bust, then 1. Face cards are 10.
-function handValue(cards) {
+export function handValue(cards) {
   let value = 0;
   let aces = 0;
   for (const c of cards) {

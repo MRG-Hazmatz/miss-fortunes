@@ -1,3 +1,12 @@
+import Phaser from 'phaser';
+import { Boot } from './scenes/Boot.js';
+import { SaveSelect } from './scenes/SaveSelect.js';
+import { Parlor } from './scenes/Parlor.js';
+import { Plinko } from './scenes/Plinko.js';
+import { Blackjack } from './scenes/Blackjack.js';
+import { Bookie } from './scenes/Bookie.js';
+import { Roulette } from './scenes/Roulette.js';
+
 const config = {
   type: Phaser.AUTO,
   width: 1280,

@@ -1,4 +1,8 @@
-class Plinko extends Phaser.Scene {
+import Phaser from 'phaser';
+import { GameState } from '../state.js';
+import { SFX } from '../audio.js';
+
+export class Plinko extends Phaser.Scene {
   constructor() {
     super('Plinko');
 

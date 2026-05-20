@@ -1,4 +1,7 @@
-class Blackjack extends Phaser.Scene {
+import Phaser from 'phaser';
+import { Card, Deck, handValue } from '../cards.js';
+
+export class Blackjack extends Phaser.Scene {
   constructor() {
     super('Blackjack');
 

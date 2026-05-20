@@ -1,3 +1,7 @@
+import Phaser from 'phaser';
+import { SFX } from '../audio.js';
+import { RouletteWheel } from './RouletteWheel.js';
+
 // Roulette.js — European single-zero roulette.
 // Pairs with RouletteWheel.js (visual wheel/ball animator).
 //
@@ -14,7 +18,7 @@
 //   splits/streets depth 200
 //   corners        depth 300
 
-class Roulette extends Phaser.Scene {
+export class Roulette extends Phaser.Scene {
   constructor() {
     super('Roulette');
 

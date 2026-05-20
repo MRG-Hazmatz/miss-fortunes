@@ -16,7 +16,7 @@
 //   - Parlor's "switch profile" link calls unsetActive() so the next visit
 //     to SaveSelect starts fresh.
 
-const GameState = {
+export const GameState = {
   STORAGE_KEY: 'missfortunes.save.v3',
   LEGACY_KEY:  'missfortunes.save.v2',
   MAX_SLOTS: 3,

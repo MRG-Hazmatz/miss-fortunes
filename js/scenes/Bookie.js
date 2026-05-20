@@ -1,3 +1,6 @@
+import Phaser from 'phaser';
+import { SFX } from '../audio.js';
+
 // Bookie.js — the off-track betting shop in the back office.
 // A cramped room with a chunky CRT TV, an odds chalkboard, and a counter.
 // The parlor's warm amber gives way to cold fluorescent green down here.
@@ -6,7 +9,7 @@
 // State machine: IDLE → PLACED → RACING → RESULTS → (IDLE)
 // Bet flow: pick horse → pick chip size → PLACE BET → watch CRT → payout → RACE AGAIN.
 
-class Bookie extends Phaser.Scene {
+export class Bookie extends Phaser.Scene {
   constructor() {
     super('Bookie');
 

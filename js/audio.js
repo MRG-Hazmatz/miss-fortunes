@@ -1,7 +1,7 @@
 // SFX — synthesized sounds via Web Audio API
 // One shared AudioContext, lazy-initialized on first user interaction.
 
-const SFX = {
+export const SFX = {
   ctx: null,
   lastPeg: 0,
 

@@ -59,15 +59,19 @@ The entire game is set inside **Miss Fortune's**, a hidden underground fortune-t
 
 ## Tech Stack (Current Phase)
 
-- **Single HTML file** approach: `index.html` loads Phaser 3 from a CDN
-- **Matter.js** for Plinko physics (bundled with Phaser)
-- **No build step, no npm, no bundler.** Open `index.html` directly in a browser to test.
-- CSS for CRT scanline shader, vignette, menu styling
-- Vanilla JS, split across multiple files loaded as `<script>` tags or ES modules
+- **Vite + npm** dev server. Phaser 3.80.1 installed via npm, not CDN.
+- **ES modules** — every JS file uses `import` / `export`. Entry point is a single `<script type="module" src="/js/main.js">` in `index.html`.
+- **Matter.js** for Plinko physics (bundled with Phaser).
+- CSS for CRT scanline shader, vignette, menu styling.
+- **Git** for version control (initialized at the Vite migration commit). `node_modules/` and `dist/` are gitignored.
 
-**Graduation trigger:** when JS exceeds ~500 lines or we have 3+ scenes, we migrate to a proper Phaser + Vite + Node.js project. Not before. Premature tooling kills non-coder projects.
+**Running locally:**
+- `npm install` once after pulling
+- `npm run dev` — Vite dev server on `http://localhost:3000` with hot module reload
+- `npm run build` — produces a static `dist/` folder
+- `npm run preview` — serves the built `dist/` locally to sanity-check the production bundle
 
-**Packaging:** eventually Tauri (Rust + webview wrapper) for a Steam-ready .exe. Phase 3, much later.
+**Packaging:** eventually Tauri (Rust + webview wrapper) for a Steam-ready .exe. Tauri expects a `dist/` folder, which `npm run build` produces.
 
 ---
 

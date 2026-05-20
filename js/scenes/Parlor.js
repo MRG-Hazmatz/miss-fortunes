@@ -1,4 +1,7 @@
-class Parlor extends Phaser.Scene {
+import Phaser from 'phaser';
+import { GameState } from '../state.js';
+
+export class Parlor extends Phaser.Scene {
   constructor() {
     super('Parlor');
 

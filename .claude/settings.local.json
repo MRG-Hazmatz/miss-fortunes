@@ -2,12 +2,38 @@
   "permissions": {
     "allow": [
       "Bash(npx --version)",
-      "mcp__Claude_Preview__preview_start",
+      "Bash(npm --version)",
+      "Bash(node --version)",
+      "Bash(npm install)",
+      "Bash(npm run dev)",
+      "Bash(npm run build)",
+      "Bash(npm run preview)",
       "Bash(netstat -ano)",
       "Bash(findstr :3000)",
       "Bash(findstr LISTENING)",
       "Bash(findstr \":3000\")",
-      "Bash(node -c \"C:/Users/hrith/OneDrive/Desktop/Vibe-coded Projects/miss-fortunes/js/scenes/Bookie.js\")"
+      "Bash(git status)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add*)",
+      "Bash(git commit*)",
+      "Bash(git init)",
+      "PowerShell(npm *)",
+      "PowerShell(git status)",
+      "PowerShell(git diff*)",
+      "PowerShell(git log*)",
+      "mcp__Claude_Preview__preview_start",
+      "mcp__Claude_Preview__preview_eval",
+      "mcp__Claude_Preview__preview_snapshot",
+      "mcp__Claude_Preview__preview_screenshot",
+      "mcp__Claude_Preview__preview_console_logs",
+      "mcp__Claude_Preview__preview_click",
+      "mcp__Claude_Preview__preview_fill",
+      "mcp__Claude_Preview__preview_inspect",
+      "mcp__Claude_Preview__preview_resize",
+      "mcp__Claude_Preview__preview_list",
+      "mcp__Claude_Preview__preview_logs",
+      "mcp__Claude_Preview__preview_network"
     ]
   }
 }

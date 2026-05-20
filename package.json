@@ -1,0 +1,18 @@
+{
+  "name": "miss-fortunes",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Miss Fortune's — a pixel-art occult parlor of mini-games. Dark fantasy, fake currency, no real gambling. In the spirit of Balatro and Buckshot Roulette.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "phaser": "3.80.1"
+  },
+  "devDependencies": {
+    "vite": "^5.4.10"
+  }
+}

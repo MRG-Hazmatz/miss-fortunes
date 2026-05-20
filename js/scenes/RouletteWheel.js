@@ -1,3 +1,5 @@
+import { SFX } from '../audio.js';
+
 // RouletteWheel.js — wheel + ball renderer & spin animator.
 // Owns nothing about betting; just visual state for the spin.
 //
@@ -5,7 +7,7 @@
 // Angle increases clockwise. Wheel rotates CCW (negative angular velocity),
 // ball orbits CW (positive angular velocity).
 
-class RouletteWheel {
+export class RouletteWheel {
   constructor(scene, x, y, radius) {
     this.scene = scene;
     this.x = x;
