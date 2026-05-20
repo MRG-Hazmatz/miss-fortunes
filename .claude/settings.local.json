@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx --version)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(netstat -ano)",
+      "Bash(findstr :3000)",
+      "Bash(findstr LISTENING)",
+      "Bash(findstr \":3000\")",
+      "Bash(node -c \"C:/Users/hrith/OneDrive/Desktop/Vibe-coded Projects/miss-fortunes/js/scenes/Bookie.js\")"
+    ]
+  }
+}

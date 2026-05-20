@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Miss Fortune's (Static Server)",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-c", "import http.server,os;http.server.test(port=int(os.environ.get('PORT','3000')),HandlerClass=http.server.SimpleHTTPRequestHandler)"],
+      "port": 3000,
+      "autoPort": true
+    }
+  ]
+}
