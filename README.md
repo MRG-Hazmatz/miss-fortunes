@@ -9,7 +9,7 @@ A pixel-art **occult parlor of mini-games** — dark fantasy, fake currency, dre
 <p align="center">
   <a href="https://mrg-hazmatz.github.io/miss-fortunes/"><b>▶ &nbsp;Play in your browser</b></a>
   <br>
-  <sub><i>no download, no account — your save lives in this browser's localStorage</i></sub>
+  <sub><i>your save lives in this browser's localStorage</i></sub>
 </p>
 
 ---
