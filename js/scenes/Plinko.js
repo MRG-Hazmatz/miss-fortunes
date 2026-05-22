@@ -56,12 +56,17 @@ export class Plinko extends Phaser.Scene {
         id: 'SHALLOW_GRAVE',
         label: 'SHALLOW GRAVE',
         rows: 12, pegSpacingX: 40, pegSpacingY: 40,
-        multipliers: [3, 1.5, 1.2, 1, 0.8, 0.5, 0.4, 0.5, 0.8, 1, 1.2, 1.5, 3],
+        // 3x is now at positions 1/11 (one step in from the edge) and the
+        // actual edges are 1x. If the bottom peg row's geometry still funnels
+        // wide-drifting balls into slot 0/12, they hit the small 1x rather
+        // than the rigged-feeling 3x jackpot.
+        multipliers: [1, 3, 1.2, 1, 0.8, 0.5, 0.4, 0.5, 0.8, 1, 1.2, 3, 1],
         // Drop the top peg so the ball threads through row 1's gap before
-        // its first deflection. Removes 2 binomial steps from the random
-        // walk (sigma √12 → √10), pulling the distribution slightly inward
-        // — softens the edge funneling without introducing wall pockets.
+        // its first deflection (binomial sigma √12 → √10).
         skipTopPeg: true,
+        // Bouncier pegs for Shallow Grave only — more lateral chaos breaks
+        // up any one-sided drift before it accumulates into a wall slide.
+        pegRestitution: 0.65,
         border: { color: 0x8b6f47, style: 'static', alpha: 0.5 }
       },
       CROSSROADS: {
@@ -283,7 +288,7 @@ export class Plinko extends Phaser.Scene {
         const img = this.add.image(x, y, isBumper ? 'peg_bumper' : 'peg').setAlpha(0.7);
         const body = this.matter.add.circle(x, y, PEG_RADIUS, {
           isStatic: true,
-          restitution: isBumper ? 1.0 : this.PEG_RESTITUTION,
+          restitution: isBumper ? 1.0 : (cfg.pegRestitution ?? this.PEG_RESTITUTION),
           friction: this.PEG_FRICTION,
           label: isBumper ? 'peg_bumper' : 'peg',
           collisionFilter: pegFilter

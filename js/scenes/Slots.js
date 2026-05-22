@@ -1,6 +1,13 @@
 import Phaser from 'phaser';
 import { GameState } from '../state.js';
 import { SFX } from '../audio.js';
+import {
+  SYMBOL_SIZE,
+  SYMBOL_POOL,
+  buildSymbolTextures,
+  pickSymbol,
+  symbolById
+} from '../slots/symbols.js';
 
 // Slots.js — 5-reel video slots with the "cursed urn" bonus round.
 // Full-screen brass cabinet aesthetic, dust + candle wax, dim crimson velvet.
@@ -38,6 +45,13 @@ export class Slots extends Phaser.Scene {
     this.spinBg       = null;
     this.spinTxt      = null;
     this._hudListeners = null;
+    this.cells        = [];        // 2D array [reelIdx][rowIdx] of Image refs
+    this.targetSymbols = [];       // pre-determined final symbols per spin
+    this._spinTimers  = [];        // Phaser TimerEvents for cleanup
+
+    // Build symbol textures once per scene mount. Idempotent — skips
+    // already-existing keys.
+    buildSymbolTextures(this);
 
     this.cameras.main.fadeIn(500, 5, 3, 2);
 
@@ -190,12 +204,12 @@ export class Slots extends Phaser.Scene {
   }
 
   // ============================================================
-  // REEL WINDOW — placeholder cells for now
+  // REEL WINDOW — black inner pocket + 5×3 grid of symbol cells
   // ============================================================
   createReelWindow() {
     const g = this.add.graphics();
 
-    // Window background — black inner pocket with a slight glow border
+    // Window background — black inner pocket with a glowing brass border
     g.fillStyle(0x000000, 0.92);
     g.fillRect(this.REEL_WINDOW_X, this.REEL_WINDOW_Y, this.REEL_WINDOW_W, this.REEL_WINDOW_H);
     g.lineStyle(3, 0xc9a961, 0.9);
@@ -210,16 +224,19 @@ export class Slots extends Phaser.Scene {
       g.lineBetween(x, this.REEL_WINDOW_Y, x, this.REEL_WINDOW_Y + this.REEL_WINDOW_H);
     }
 
-    // Placeholder symbols — sigil-like glyphs until the symbol library lands
+    // 5×3 grid of symbol images. Initialized with random symbols so the idle
+    // reel isn't empty. Stored in this.cells[reelIdx][rowIdx] so spin code
+    // can swap textures during the spin and lock them on stop.
     for (let r = 0; r < this.REELS; r++) {
+      const reelCells = [];
       for (let row = 0; row < this.ROWS; row++) {
         const cx = this.REEL_WINDOW_X + r * this.CELL_W + this.CELL_W / 2;
         const cy = this.REEL_WINDOW_Y + row * this.CELL_H + this.CELL_H / 2;
-        this.add.text(cx, cy, '◇', {
-          fontFamily: '"Courier New", monospace', fontSize: '38px',
-          color: '#5a4530'
-        }).setOrigin(0.5);
+        const sym = pickSymbol();
+        const img = this.add.image(cx, cy, `symbol_${sym.id}`);
+        reelCells.push(img);
       }
+      this.cells.push(reelCells);
     }
   }
 
@@ -325,9 +342,70 @@ export class Slots extends Phaser.Scene {
       this.lastWinText.setText('not enough chips');
       return;
     }
-    // First-pass stub — real spin mechanics land in the next chunk.
-    this.lastWinText.setColor('#6a5030');
-    this.lastWinText.setText('the reels haven’t learned to spin yet…');
+
+    // Pay the bet up front. Win calc + payout will land in the next chunk;
+    // for this chunk the player gets a visible spin but no winnings yet.
+    this.registry.set('chips', chips - this.selectedBet);
+    this.spinning = true;
+    this.lastWinText.setText('');
+
+    // Pre-determine the final 5×3 grid. Each call uses weighted random from
+    // SYMBOL_POOL — wins / scatter detection will read these once all reels
+    // have stopped.
+    this.targetSymbols = [];
+    for (let r = 0; r < this.REELS; r++) {
+      const reel = [];
+      for (let row = 0; row < this.ROWS; row++) {
+        reel.push(pickSymbol().id);
+      }
+      this.targetSymbols.push(reel);
+    }
+
+    // Stagger reel stops — reel 1 first, reel 5 last with extra anticipation.
+    const stopTimes = [800, 1100, 1400, 1700, 2100];
+    for (let r = 0; r < this.REELS; r++) {
+      this.spinReel(r, stopTimes[r]);
+    }
+  }
+
+  // Run a single reel's spin animation: rapid texture swaps until stopAfterMs,
+  // then lock to the predetermined target symbols and pop each cell briefly.
+  spinReel(reelIdx, stopAfterMs) {
+    const swapEvent = this.time.addEvent({
+      delay: 60,
+      loop: true,
+      callback: () => {
+        for (let row = 0; row < this.ROWS; row++) {
+          const sym = pickSymbol();
+          this.cells[reelIdx][row].setTexture(`symbol_${sym.id}`);
+        }
+      }
+    });
+    this._spinTimers.push(swapEvent);
+
+    this.time.delayedCall(stopAfterMs, () => {
+      swapEvent.remove();
+      // Lock the final symbols + pop animation per cell
+      for (let row = 0; row < this.ROWS; row++) {
+        const symId = this.targetSymbols[reelIdx][row];
+        const cell = this.cells[reelIdx][row];
+        cell.setTexture(`symbol_${symId}`);
+        this.tweens.add({
+          targets: cell,
+          scaleX: 1.15, scaleY: 1.15,
+          yoyo: true,
+          duration: 110,
+          ease: 'Sine.easeOut'
+        });
+      }
+      // Last reel stopped — clear the busy flag. Win/scatter detection ships
+      // in the next chunk; for now the player can spin again immediately.
+      if (reelIdx === this.REELS - 1) {
+        this.spinning = false;
+        this.lastWinText.setColor('#6a5030');
+        this.lastWinText.setText('— spin again —');
+      }
+    });
   }
 
   // ============================================================

@@ -102,8 +102,17 @@ export class SaveSelect extends Phaser.Scene {
   }
 
   createBackHint() {
-    this.add.text(40, 40, '', { /* placeholder — no back here, Boot is one-way */
-      fontFamily: '"Courier New", monospace', fontSize: '12px', color: '#3a2a1a'
+    // Back-to-title link — closes the navigation loop so the title screen is
+    // reachable from anywhere (previously Boot → SaveSelect was one-way).
+    const back = this.add.text(30, 24, '< back to title', {
+      fontFamily: '"Courier New", monospace', fontSize: '16px', color: '#6a5030'
+    });
+    back.setInteractive({ useHandCursor: true });
+    back.on('pointerover', () => back.setColor('#c9a961'));
+    back.on('pointerout',  () => back.setColor('#6a5030'));
+    back.on('pointerdown', () => {
+      this.cameras.main.fadeOut(500, 8, 5, 5);
+      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Boot'));
     });
 
     // Tiny help text bottom-center
