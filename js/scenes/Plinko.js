@@ -323,10 +323,15 @@ export class Plinko extends Phaser.Scene {
       const color = this.getSlotColor(mult);
       const textColor = this.getSlotTextColor(mult);
 
-      gfx.fillStyle(color, 0.07);
+      // Slot floor — tier-colored fill at readable alpha (was 0.07, basically invisible)
+      gfx.fillStyle(color, 0.28);
       gfx.fillRect(x - slotW / 2 + 2, SLOT_Y - slotH / 2, slotW - 4, slotH);
-      gfx.fillStyle(color, 0.45);
-      gfx.fillRect(x - slotW / 2 + 2, SLOT_Y - slotH / 2, slotW - 4, 3);
+      // Top rim — beefier glowing band at the slot lip (was 3px @ 0.45)
+      gfx.fillStyle(color, 0.7);
+      gfx.fillRect(x - slotW / 2 + 2, SLOT_Y - slotH / 2, slotW - 4, 5);
+      // Brass border so each slot reads as a discrete pocket
+      gfx.lineStyle(1, 0x3d2817, 0.6);
+      gfx.strokeRect(x - slotW / 2 + 2, SLOT_Y - slotH / 2, slotW - 4, slotH);
 
       const txt = this.add.text(x, SLOT_Y + 8, `${mult}x`, {
         fontFamily: '"Courier New", monospace',

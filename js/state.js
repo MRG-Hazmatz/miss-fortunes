@@ -21,7 +21,7 @@ export const GameState = {
   LEGACY_KEY:  'missfortunes.save.v2',
   MAX_SLOTS: 3,
   MAX_NAME_LEN: 14,
-  DEFAULTS: { chips: 100, marrow: 0 },
+  DEFAULTS: { chips: 100, marrow: 100 },
 
   // ===== Storage helpers =====
 
