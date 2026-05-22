@@ -100,6 +100,14 @@ The entire game is set inside **Miss Fortune's**, a hidden underground fortune-t
 
 ---
 
+## Known issues / future work (carry across sessions)
+
+- **Economy balance pass needed** before any "public release" push. Current state: payouts across every room are too generous. Concrete example flagged by playtesting: in Plinko at bet 25 × 15 balls (the "multi-stream" UI), probability favors the player so heavily that an opening-balance player walks out with thousands of chips inside a few minutes. Same pattern likely exists in Bookie (longshot odds too high) and Roulette (no real house edge tuning). **Defer the balance pass until all rooms are functionally complete** — easier to tune relative payouts when you can see the whole game shape, and any tuning we do now gets re-tuned after Slots/Pinball/Fortune-Teller change the chip pressure.
+- **Plinko Shallow Grave edge bias** is reduced (top peg removed, binomial walk shortened from 12 to 10 steps) but not eliminated — the bottom peg row still doesn't cover the outermost slot columns. If it still feels rigged after the user plays a session, options to escalate: shift the 3x multipliers off the absolute edge (e.g. into slot 1/11), or reduce slot count to 11 for this board only.
+- **Itch.io upload deferred** until the game is fully operational (Slots playable, Fortune Teller / Back Room at least sketched). itch.io discoverability rewards finished games — first impression there matters. GitHub Pages is the dev-share URL in the meantime.
+
+---
+
 ## Palette
 
 **Parlor furnishings & game UI — warm amber (the house vibe):**

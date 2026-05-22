@@ -57,11 +57,11 @@ export class Plinko extends Phaser.Scene {
         label: 'SHALLOW GRAVE',
         rows: 12, pegSpacingX: 40, pegSpacingY: 40,
         multipliers: [3, 1.5, 1.2, 1, 0.8, 0.5, 0.4, 0.5, 0.8, 1, 1.2, 1.5, 3],
-        // Without these, balls drifting past the outermost regular peg
-        // wall-slide unobstructed into the edge 3x slots, heavily biasing
-        // the board toward edges. The guards sit above the outer slot
-        // centers so wide balls bounce inward instead of through.
-        bottomGuardPegs: true,
+        // Drop the top peg so the ball threads through row 1's gap before
+        // its first deflection. Removes 2 binomial steps from the random
+        // walk (sigma √12 → √10), pulling the distribution slightly inward
+        // — softens the edge funneling without introducing wall pockets.
+        skipTopPeg: true,
         border: { color: 0x8b6f47, style: 'static', alpha: 0.5 }
       },
       CROSSROADS: {
@@ -271,7 +271,8 @@ export class Plinko extends Phaser.Scene {
     const removed = (cfg.removedPegs instanceof Set) ? cfg.removedPegs : null;
     const bumper = cfg.bumperPeg || null;
 
-    for (let row = 0; row < rows; row++) {
+    const startRow = cfg.skipTopPeg ? 1 : 0;
+    for (let row = startRow; row < rows; row++) {
       const count = topPegs + row;
       const y = firstRowY + row * spacingY;
       const startX = BOARD_X - (count - 1) * spacingX / 2;
@@ -285,28 +286,6 @@ export class Plinko extends Phaser.Scene {
           restitution: isBumper ? 1.0 : this.PEG_RESTITUTION,
           friction: this.PEG_FRICTION,
           label: isBumper ? 'peg_bumper' : 'peg',
-          collisionFilter: pegFilter
-        });
-        this.pegMap.set(body.id, img);
-        this.boardObjects.push(img);
-        this.boardObjects.push({ type: 'matter-body', body });
-      }
-    }
-
-    // Optional: extra deflector pegs at the bottom-row corners (Shallow Grave
-    // today; flag any board with bottomGuardPegs: true). Catches balls that
-    // would otherwise wall-slide into the outermost slots.
-    if (cfg.bottomGuardPegs) {
-      const guardY = firstRowY + (rows - 1) * spacingY;
-      const guardL = BOARD_X - (this.SLOT_COUNT - 1) * cfg.pegSpacingX / 2;
-      const guardR = BOARD_X + (this.SLOT_COUNT - 1) * cfg.pegSpacingX / 2;
-      for (const gx of [guardL, guardR]) {
-        const img = this.add.image(gx, guardY, 'peg').setAlpha(0.7);
-        const body = this.matter.add.circle(gx, guardY, PEG_RADIUS, {
-          isStatic: true,
-          restitution: this.PEG_RESTITUTION,
-          friction: this.PEG_FRICTION,
-          label: 'peg',
           collisionFilter: pegFilter
         });
         this.pegMap.set(body.id, img);
