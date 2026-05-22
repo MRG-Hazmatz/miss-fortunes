@@ -6,6 +6,7 @@ import { Plinko } from './scenes/Plinko.js';
 import { Blackjack } from './scenes/Blackjack.js';
 import { Bookie } from './scenes/Bookie.js';
 import { Roulette } from './scenes/Roulette.js';
+import { Slots } from './scenes/Slots.js';
 
 const config = {
   type: Phaser.AUTO,
@@ -20,7 +21,7 @@ const config = {
       debug: false
     }
   },
-  scene: [Boot, SaveSelect, Parlor, Plinko, Blackjack, Bookie, Roulette],
+  scene: [Boot, SaveSelect, Parlor, Plinko, Blackjack, Bookie, Roulette, Slots],
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH
