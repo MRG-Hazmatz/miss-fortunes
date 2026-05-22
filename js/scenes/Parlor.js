@@ -171,26 +171,32 @@ export class Parlor extends Phaser.Scene {
 
   createCornerLinks() {
     const mkLink = (x, label, onClick) => {
-      const link = this.add.text(x, 710, label, {
+      const link = this.add.text(x, 702, label, {
         fontFamily: '"Courier New", monospace',
-        fontSize: '11px',
-        color: '#3a2a1a'
+        fontSize: '13px',
+        color: '#5a4530',
+        letterSpacing: 1
       }).setOrigin(1, 1);
       link.setInteractive({ useHandCursor: true });
-      link.on('pointerover', () => link.setColor('#8b6f47'));
-      link.on('pointerout',  () => link.setColor('#3a2a1a'));
+      link.on('pointerover', () => link.setColor('#c9a961'));
+      link.on('pointerout',  () => link.setColor('#5a4530'));
       link.on('pointerdown', onClick);
       return link;
     };
 
-    // "exit" sits leftmost, "switch profile" rightmost (anchored at x=1270).
-    // Both right-aligned via origin (1,1) so we measure from the right edge.
+    // Bottom-right cluster, right-to-left: switch profile, save, exit.
+    // Bumped visibility (was 11px @ #3a2a1a, basically invisible) so first-time
+    // players can actually find the exit and the manual save reassurance.
     mkLink(1270, 'switch profile', () => {
       GameState.unsetActive();
       this.cameras.main.fadeOut(450, 8, 5, 5);
       this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('SaveSelect'));
     });
-    mkLink(1170, 'exit', () => this.showExitConfirm());
+    // Manual save — the auto-save already covers chip/marrow changes, but
+    // a visible "save" button reassures players the game can be safely closed.
+    // Fires the same 'state-saved' event as auto-save, so the SAVED chip flashes.
+    mkLink(1130, 'save', () => GameState.persistActive(this.game));
+    mkLink(1040, 'exit', () => this.showExitConfirm());
   }
 
   // Friendly reminder modal — the game is browser-based and can't really
