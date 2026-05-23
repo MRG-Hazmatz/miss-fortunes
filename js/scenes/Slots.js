@@ -3,12 +3,13 @@ import { GameState } from '../state.js';
 import { SFX } from '../audio.js';
 import {
   SYMBOL_SIZE,
+  SYMBOLS,
   SYMBOL_POOL,
   buildSymbolTextures,
   pickSymbol,
   symbolById
 } from '../slots/symbols.js';
-import { PAYLINES, detectWins } from '../slots/paylines.js';
+import { PAYLINES, PAYTABLE, detectWins } from '../slots/paylines.js';
 
 // Slots.js — 5-reel video slots with the "cursed urn" bonus round.
 // Full-screen brass cabinet aesthetic, dust + candle wax, dim crimson velvet.
@@ -49,6 +50,11 @@ export class Slots extends Phaser.Scene {
     this.cells        = [];        // 2D array [reelIdx][rowIdx] of Image refs
     this.targetSymbols = [];       // pre-determined final symbols per spin
     this._spinTimers  = [];        // Phaser TimerEvents for cleanup
+    this.leverKnob    = null;      // graphics ref for pull-animation
+    this._leverRestY  = 0;
+    this._paytableModal = null;
+    this.displayedChips = 0;
+    this._chipTween   = null;
 
     // Build symbol textures once per scene mount. Idempotent — skips
     // already-existing keys.
@@ -62,6 +68,7 @@ export class Slots extends Phaser.Scene {
     this.createPaytableHint();
     this.createBetSelector();
     this.createSpinButton();
+    this.createPaytableLink();
     this.createHUD();
     this.createBackButton();
   }
@@ -166,27 +173,48 @@ export class Slots extends Phaser.Scene {
   }
 
   drawLever() {
-    // Lever stem + ornate knob on the right outer cabinet face
+    // Lever stem + ornate knob on the right outer cabinet face.
+    // Knob is its own graphics object so the SPIN animation can tween it
+    // downward and back without redrawing the stem.
     const lx = 1145, lyKnob = 240, stemH = 200;
-    const g = this.add.graphics();
-    // Stem
-    g.fillStyle(0x4a3320, 1);
-    g.fillRect(lx - 3, lyKnob, 6, stemH);
-    g.lineStyle(1, 0x2a1810, 0.8);
-    g.strokeRect(lx - 3, lyKnob, 6, stemH);
-    // Knob
-    g.fillStyle(0xc9a961, 0.95);
-    g.fillCircle(lx, lyKnob, 16);
-    g.lineStyle(2, 0x6a5030, 0.85);
-    g.strokeCircle(lx, lyKnob, 16);
-    g.fillStyle(0xffd8a0, 0.5);
-    g.fillCircle(lx - 4, lyKnob - 4, 4);
+
+    // Stem — fixed, never moves
+    const stem = this.add.graphics();
+    stem.fillStyle(0x4a3320, 1);
+    stem.fillRect(lx - 3, lyKnob, 6, stemH);
+    stem.lineStyle(1, 0x2a1810, 0.8);
+    stem.strokeRect(lx - 3, lyKnob, 6, stemH);
+
+    // Knob — drawn at origin (0, 0), positioned at (lx, lyKnob).
+    // Tween this.leverKnob.y to animate the pull.
+    this.leverKnob = this.add.graphics();
+    this.leverKnob.setPosition(lx, lyKnob);
+    this.leverKnob.fillStyle(0xc9a961, 0.95);
+    this.leverKnob.fillCircle(0, 0, 16);
+    this.leverKnob.lineStyle(2, 0x6a5030, 0.85);
+    this.leverKnob.strokeCircle(0, 0, 16);
+    this.leverKnob.fillStyle(0xffd8a0, 0.5);
+    this.leverKnob.fillCircle(-4, -4, 4);
+    this._leverRestY = lyKnob;
 
     // Tiny label
     this.add.text(lx, lyKnob + stemH + 18, 'pull', {
       fontFamily: '"Courier New", monospace', fontSize: '10px',
       color: '#6a5030', letterSpacing: 2
     }).setOrigin(0.5);
+  }
+
+  // Yank the lever knob downward then back — synced with the SPIN start.
+  animateLeverPull() {
+    if (!this.leverKnob) return;
+    this.tweens.killTweensOf(this.leverKnob);
+    this.tweens.add({
+      targets: this.leverKnob,
+      y: this._leverRestY + 55,
+      duration: 180,
+      yoyo: true,
+      ease: 'Sine.easeOut'
+    });
   }
 
   drawTitlePlate() {
@@ -344,11 +372,14 @@ export class Slots extends Phaser.Scene {
       return;
     }
 
-    // Pay the bet up front. Win calc + payout will land in the next chunk;
-    // for this chunk the player gets a visible spin but no winnings yet.
+    // Pay the bet up front.
     this.registry.set('chips', chips - this.selectedBet);
     this.spinning = true;
     this.lastWinText.setText('');
+
+    // Mechanical feel: yank the lever + crank up the lever-pull SFX in sync
+    this.animateLeverPull();
+    if (SFX.leverPull) SFX.leverPull();
 
     // Pre-determine the final 5×3 grid. Each call uses weighted random from
     // SYMBOL_POOL — wins / scatter detection will read these once all reels
@@ -362,18 +393,59 @@ export class Slots extends Phaser.Scene {
       this.targetSymbols.push(reel);
     }
 
-    // Stagger reel stops — reel 1 first, reel 5 last with extra anticipation.
-    const stopTimes = [800, 1100, 1400, 1700, 2100];
+    // If reels 1-4 already form a 4-of-a-kind on any payline, reel 5 enters
+    // anticipation: slower symbol churn + delayed stop. Builds tension.
+    const anticipating = this.shouldAnticipate(this.targetSymbols);
+    const stopTimes = anticipating
+      ? [800, 1100, 1400, 1700, 2900]   // reel 5 +800ms suspense
+      : [800, 1100, 1400, 1700, 2100];
+
     for (let r = 0; r < this.REELS; r++) {
-      this.spinReel(r, stopTimes[r]);
+      const slow = anticipating && r === this.REELS - 1;
+      this.spinReel(r, stopTimes[r], slow);
     }
+  }
+
+  // Check whether reels 1-4 of the predetermined grid form a 4-of-a-kind on
+  // any payline (with wild substitution). If so, reel 5 will anticipate —
+  // a single matching symbol there pays the 5-of-a-kind multiplier.
+  shouldAnticipate(grid) {
+    for (const payline of PAYLINES) {
+      const cells = [
+        grid[0][payline.rows[0]],
+        grid[1][payline.rows[1]],
+        grid[2][payline.rows[2]],
+        grid[3][payline.rows[3]]
+      ];
+      // Scatter starts can't form a payline win — skip
+      if (cells[0] === SYMBOLS.WITCHMARK) continue;
+      // Find the primary (first non-wild)
+      let primary = cells[0];
+      if (primary === SYMBOLS.TAROT) {
+        for (let i = 1; i < cells.length; i++) {
+          if (cells[i] !== SYMBOLS.TAROT && cells[i] !== SYMBOLS.WITCHMARK) {
+            primary = cells[i]; break;
+          }
+        }
+      }
+      // Count consecutive matches with wild substitution
+      let count = 0;
+      for (let i = 0; i < cells.length; i++) {
+        if (cells[i] === primary) count++;
+        else if (cells[i] === SYMBOLS.TAROT && primary !== SYMBOLS.TAROT) count++;
+        else break;
+      }
+      if (count === 4) return true;
+    }
+    return false;
   }
 
   // Run a single reel's spin animation: rapid texture swaps until stopAfterMs,
   // then lock to the predetermined target symbols and pop each cell briefly.
-  spinReel(reelIdx, stopAfterMs) {
+  // slowSwap = true on reel 5 only when an anticipation is in progress.
+  spinReel(reelIdx, stopAfterMs, slowSwap = false) {
     const swapEvent = this.time.addEvent({
-      delay: 60,
+      delay: slowSwap ? 150 : 60,
       loop: true,
       callback: () => {
         for (let row = 0; row < this.ROWS; row++) {
@@ -399,8 +471,8 @@ export class Slots extends Phaser.Scene {
           ease: 'Sine.easeOut'
         });
       }
-      // Reel-stop clack — chipPlace is a soft tick, fits the brass cabinet feel
-      if (SFX.chipPlace) SFX.chipPlace();
+      // Reel-stop clack — escalating weight per reel index (5th hits hardest)
+      if (SFX.reelStop) SFX.reelStop(reelIdx);
 
       // Last reel stopped — hand off to win/scatter resolution
       if (reelIdx === this.REELS - 1) {
@@ -428,8 +500,9 @@ export class Slots extends Phaser.Scene {
       this.lastWinText.setText(`+${totalReturn} chips`);
       // Effective multiplier on the bet drives the chime tier
       const tier = Math.min(10, totalReturn / this.selectedBet);
-      if (SFX.slotHit) SFX.slotHit(tier);
+      if (SFX.slotWinTier) SFX.slotWinTier(tier);
       this.highlightWins(wins);
+      this.spawnFloatingWin(totalReturn, tier);
     } else if (scatterCount < 3) {
       this.lastWinText.setColor('#6a5030');
       this.lastWinText.setText('— spin again —');
@@ -442,6 +515,31 @@ export class Slots extends Phaser.Scene {
     } else {
       this.spinning = false;
     }
+  }
+
+  // +N chips text that rises from the reel window and fades. Big tier = bigger.
+  spawnFloatingWin(amount, tier) {
+    const cx = this.REEL_WINDOW_X + this.REEL_WINDOW_W / 2;
+    const cy = this.REEL_WINDOW_Y + this.REEL_WINDOW_H / 2;
+    const size = tier >= 10 ? '38px' : tier >= 5 ? '32px' : tier >= 2 ? '26px' : '22px';
+    const color = tier >= 10 ? '#ff6b35' : tier >= 5 ? '#e8c547' : '#c9a961';
+    const txt = this.add.text(cx, cy, `+${amount}`, {
+      fontFamily: '"Courier New", monospace', fontSize: size,
+      fontStyle: 'bold', color, letterSpacing: 2,
+      shadow: { offsetX: 0, offsetY: 0, color, blur: 14, fill: true }
+    }).setOrigin(0.5).setDepth(50).setAlpha(0);
+    this.tweens.add({
+      targets: txt,
+      alpha: 1, y: cy - 30,
+      duration: 280, ease: 'Sine.easeOut'
+    });
+    this.tweens.add({
+      targets: txt,
+      alpha: 0, y: cy - 110,
+      duration: 700, delay: 700,
+      ease: 'Sine.easeIn',
+      onComplete: () => txt.destroy()
+    });
   }
 
   // Draw a glowing line connecting the winning cells + pulse each one.
@@ -532,8 +630,8 @@ export class Slots extends Phaser.Scene {
     ).setOrigin(0.5);
     modal.add(sub);
 
-    // Scatter chord — slot-style win SFX layered as the séance bell
-    if (SFX.bigWin) SFX.bigWin();
+    // Scatter chord — diminished-triad sting + rumble
+    if (SFX.scatterAwaken) SFX.scatterAwaken();
 
     // 5 urns in a row at y=410, centered, 200px apart
     const spacing = 200;
@@ -609,10 +707,8 @@ export class Slots extends Phaser.Scene {
       this.registry.set('marrow', m + selected.marrow);
     }
 
-    // Outcome-specific sting
-    if (selected.type === 'jackpot') { if (SFX.bigWin) SFX.bigWin(); }
-    else if (selected.type === 'cursed') { if (SFX.crtFlicker) SFX.crtFlicker(0.35, 0.4); }
-    else { if (SFX.slotHit) SFX.slotHit(2); }
+    // Outcome-specific sting — bespoke urn SFX
+    if (SFX.urnReveal) SFX.urnReveal(selected.type);
 
     urnContainers.forEach((uc, i) => {
       const outcome = outcomes[i];
@@ -682,11 +778,154 @@ export class Slots extends Phaser.Scene {
   }
 
   // ============================================================
-  // HUD — chips + marrow top-right (mirrors other scenes)
+  // PAYTABLE LINK — small "what pays?" under the spin button.
+  // Opens a modal showing each symbol tier and its 3/4/5-of-a-kind payouts.
+  // ============================================================
+  createPaytableLink() {
+    const link = this.add.text(1010, 612, 'what pays?', {
+      fontFamily: '"Courier New", monospace', fontSize: '12px',
+      color: '#6a5030', letterSpacing: 1
+    }).setOrigin(0.5);
+    link.setInteractive({ useHandCursor: true });
+    link.on('pointerover', () => link.setColor('#c9a961'));
+    link.on('pointerout',  () => link.setColor('#6a5030'));
+    link.on('pointerdown', () => this.showPaytableModal());
+  }
+
+  showPaytableModal() {
+    if (this._paytableModal) return;
+
+    const modal = this.add.container(0, 0).setDepth(1500);
+
+    // Dim background
+    const dim = this.add.graphics();
+    dim.fillStyle(0x000000, 0.88);
+    dim.fillRect(0, 0, 1280, 720);
+    modal.add(dim);
+
+    // Title
+    modal.add(this.add.text(640, 70, 'PAYTABLE', {
+      fontFamily: '"Courier New", monospace', fontSize: '32px',
+      fontStyle: 'bold', color: '#c9a961', letterSpacing: 10,
+      shadow: { offsetX: 0, offsetY: 0, color: '#c9a961', blur: 14, fill: true }
+    }).setOrigin(0.5));
+
+    modal.add(this.add.text(640, 110, '— five reels, nine paylines —', {
+      fontFamily: '"Courier New", monospace', fontSize: '12px',
+      fontStyle: 'italic', color: '#8b6f47', letterSpacing: 2
+    }).setOrigin(0.5));
+
+    // Column headers
+    const colX = { sym: 290, c3: 600, c4: 760, c5: 920, desc: 1080 };
+    const headerY = 165;
+    const headerStyle = { fontFamily: '"Courier New", monospace', fontSize: '13px', color: '#8b6f47', letterSpacing: 2 };
+    modal.add(this.add.text(colX.sym, headerY, 'symbols',  headerStyle).setOrigin(0.5));
+    modal.add(this.add.text(colX.c3,  headerY, '3-OF',     headerStyle).setOrigin(0.5));
+    modal.add(this.add.text(colX.c4,  headerY, '4-OF',     headerStyle).setOrigin(0.5));
+    modal.add(this.add.text(colX.c5,  headerY, '5-OF',     headerStyle).setOrigin(0.5));
+
+    // Group symbols by tier
+    const commons = SYMBOL_POOL.filter(s => s.tier === 'common');
+    const mids    = SYMBOL_POOL.filter(s => s.tier === 'mid');
+    const wild    = SYMBOL_POOL.find(s => s.tier === 'wild');
+    const scatter = SYMBOL_POOL.find(s => s.tier === 'scatter');
+
+    const rowY = [225, 320, 415, 520];
+    const rowColor = '#c9a961';
+
+    // Row 1: commons (5 icons in a strip)
+    this.drawPaytableRow(modal, rowY[0], commons, PAYTABLE.common, colX, rowColor, null);
+
+    // Row 2: mids (3 icons)
+    this.drawPaytableRow(modal, rowY[1], mids, PAYTABLE.mid, colX, rowColor, null);
+
+    // Row 3: wild (tarot) — note about substitution + double
+    this.drawPaytableRow(modal, rowY[2], [wild], PAYTABLE.wild, colX, '#a76de0',
+      'substitutes for any non-scatter symbol on a payline\nand doubles that line\'s winnings');
+
+    // Row 4: scatter (witch's mark) — no payline pay, triggers bonus
+    this.drawScatterRow(modal, rowY[3], scatter, colX);
+
+    // Footer
+    modal.add(this.add.text(640, 620, 'bets stake the total wager. wins return bet × multiplier per winning line, summed.', {
+      fontFamily: '"Courier New", monospace', fontSize: '11px',
+      fontStyle: 'italic', color: '#6a5030', letterSpacing: 1
+    }).setOrigin(0.5));
+
+    // Close button
+    const close = this.add.text(640, 670, '[ close ]', {
+      fontFamily: '"Courier New", monospace', fontSize: '14px',
+      color: '#a89050', letterSpacing: 3
+    }).setOrigin(0.5);
+    close.setInteractive({ useHandCursor: true });
+    close.on('pointerover', () => close.setColor('#ffd8a0'));
+    close.on('pointerout',  () => close.setColor('#a89050'));
+    modal.add(close);
+
+    // Full-screen invisible dismiss zone (catches outside-modal clicks too)
+    const dismiss = this.add.zone(640, 360, 1280, 720).setOrigin(0.5)
+      .setInteractive({ useHandCursor: false }).setDepth(1499);
+    modal.add(dismiss);
+
+    const closeModal = () => {
+      this.tweens.add({
+        targets: modal, alpha: 0, duration: 280,
+        onComplete: () => { modal.destroy(); this._paytableModal = null; }
+      });
+    };
+    close.on('pointerdown', closeModal);
+    dismiss.on('pointerdown', closeModal);
+
+    this._paytableModal = modal;
+  }
+
+  drawPaytableRow(modal, y, symbols, payouts, colX, color, note) {
+    // Symbol icons stacked horizontally at colX.sym, each at SYMBOL_SIZE/1.4 scale
+    const iconScale = 0.55;
+    const iconStep = 50;
+    const totalW = (symbols.length - 1) * iconStep;
+    const startX = colX.sym - totalW / 2;
+    for (let i = 0; i < symbols.length; i++) {
+      const img = this.add.image(startX + i * iconStep, y, `symbol_${symbols[i].id}`)
+        .setScale(iconScale).setDepth(1501);
+      modal.add(img);
+    }
+    const mulStyle = { fontFamily: '"Courier New", monospace', fontSize: '20px', fontStyle: 'bold', color, letterSpacing: 1 };
+    modal.add(this.add.text(colX.c3, y, `${payouts[3]}×`, mulStyle).setOrigin(0.5));
+    modal.add(this.add.text(colX.c4, y, `${payouts[4]}×`, mulStyle).setOrigin(0.5));
+    modal.add(this.add.text(colX.c5, y, `${payouts[5]}×`, mulStyle).setOrigin(0.5));
+    if (note) {
+      modal.add(this.add.text(colX.desc, y, note, {
+        fontFamily: '"Courier New", monospace', fontSize: '10px',
+        fontStyle: 'italic', color: '#8b6f47', align: 'center', lineSpacing: 4,
+        wordWrap: { width: 220 }
+      }).setOrigin(0.5));
+    }
+  }
+
+  drawScatterRow(modal, y, scatter, colX) {
+    const img = this.add.image(colX.sym, y, `symbol_${scatter.id}`)
+      .setScale(0.7).setDepth(1501);
+    modal.add(img);
+    modal.add(this.add.text((colX.c3 + colX.c5) / 2, y - 12, '3+ scatters anywhere', {
+      fontFamily: '"Courier New", monospace', fontSize: '14px',
+      fontStyle: 'bold', color: '#ff6b35', letterSpacing: 2
+    }).setOrigin(0.5));
+    modal.add(this.add.text((colX.c3 + colX.c5) / 2, y + 12, 'summons the urns — pick one for marrow', {
+      fontFamily: '"Courier New", monospace', fontSize: '11px',
+      fontStyle: 'italic', color: '#c9a961', letterSpacing: 1
+    }).setOrigin(0.5));
+  }
+
+  // ============================================================
+  // HUD — chips + marrow top-right. Chip text animates UP on wins
+  // and snaps DOWN instantly on bets (so the count-up doesn't lie).
   // ============================================================
   createHUD() {
     const chips = this.registry.get('chips');
     const marrow = this.registry.get('marrow');
+    this.displayedChips = chips;
+    this._chipTween = null;
     this.chipText = this.add.text(1240, 24, `chips: ${chips}`, {
       fontFamily: '"Courier New", monospace', fontSize: '14px',
       fontStyle: 'bold', color: '#c9a961'
@@ -697,7 +936,32 @@ export class Slots extends Phaser.Scene {
     }).setOrigin(1, 0);
 
     const onChip = () => {
-      if (this.chipText) this.chipText.setText(`chips: ${this.registry.get('chips')}`);
+      if (!this.chipText) return;
+      const actual = this.registry.get('chips');
+      // Bets (chips decreased) snap; wins (chips increased) tween up
+      if (actual < this.displayedChips) {
+        if (this._chipTween) { this._chipTween.stop(); this._chipTween = null; }
+        this.displayedChips = actual;
+        this.chipText.setText(`chips: ${actual}`);
+      } else if (actual > this.displayedChips) {
+        if (this._chipTween) { this._chipTween.stop(); this._chipTween = null; }
+        const startVal = this.displayedChips;
+        this._chipTween = this.tweens.addCounter({
+          from: startVal, to: actual,
+          duration: 600,
+          ease: 'Sine.easeOut',
+          onUpdate: tween => {
+            const v = Math.round(tween.getValue());
+            this.displayedChips = v;
+            if (this.chipText) this.chipText.setText(`chips: ${v}`);
+          },
+          onComplete: () => {
+            this.displayedChips = actual;
+            if (this.chipText) this.chipText.setText(`chips: ${actual}`);
+            this._chipTween = null;
+          }
+        });
+      }
     };
     const onMarrow = () => {
       if (this.marrowText) this.marrowText.setText(`marrow: ${this.registry.get('marrow')}`);
@@ -715,6 +979,7 @@ export class Slots extends Phaser.Scene {
         this.registry.events.off('changedata-marrow', this._hudListeners.onMarrow);
         this._hudListeners = null;
       }
+      if (this._chipTween) { this._chipTween.stop(); this._chipTween = null; }
     });
   }
 
