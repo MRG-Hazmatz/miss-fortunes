@@ -8,6 +8,7 @@ import {
   pickSymbol,
   symbolById
 } from '../slots/symbols.js';
+import { PAYLINES, detectWins } from '../slots/paylines.js';
 
 // Slots.js — 5-reel video slots with the "cursed urn" bonus round.
 // Full-screen brass cabinet aesthetic, dust + candle wax, dim crimson velvet.
@@ -398,13 +399,285 @@ export class Slots extends Phaser.Scene {
           ease: 'Sine.easeOut'
         });
       }
-      // Last reel stopped — clear the busy flag. Win/scatter detection ships
-      // in the next chunk; for now the player can spin again immediately.
+      // Reel-stop clack — chipPlace is a soft tick, fits the brass cabinet feel
+      if (SFX.chipPlace) SFX.chipPlace();
+
+      // Last reel stopped — hand off to win/scatter resolution
       if (reelIdx === this.REELS - 1) {
-        this.spinning = false;
-        this.lastWinText.setColor('#6a5030');
-        this.lastWinText.setText('— spin again —');
+        this.resolveSpin();
       }
+    });
+  }
+
+  // ============================================================
+  // SPIN RESOLUTION — wins, paylines, scatter bonus
+  // ============================================================
+  resolveSpin() {
+    const { wins, scatterCount } = detectWins(this.targetSymbols);
+
+    // Sum chip return from winning paylines
+    let totalReturn = 0;
+    for (const w of wins) {
+      totalReturn += this.selectedBet * w.multiplier;
+    }
+
+    if (totalReturn > 0) {
+      const chips = this.registry.get('chips');
+      this.registry.set('chips', chips + totalReturn);
+      this.lastWinText.setColor('#e8c547');
+      this.lastWinText.setText(`+${totalReturn} chips`);
+      // Effective multiplier on the bet drives the chime tier
+      const tier = Math.min(10, totalReturn / this.selectedBet);
+      if (SFX.slotHit) SFX.slotHit(tier);
+      this.highlightWins(wins);
+    } else if (scatterCount < 3) {
+      this.lastWinText.setColor('#6a5030');
+      this.lastWinText.setText('— spin again —');
+    }
+
+    // Scatter bonus — 3+ witch's marks anywhere on the grid → urns
+    if (scatterCount >= 3) {
+      // Delay so paying lines animate first (longer if there were wins)
+      this.time.delayedCall(totalReturn > 0 ? 1500 : 500, () => this.showBonusRound(scatterCount));
+    } else {
+      this.spinning = false;
+    }
+  }
+
+  // Draw a glowing line connecting the winning cells + pulse each one.
+  highlightWins(wins) {
+    for (const w of wins) {
+      const payline = PAYLINES[w.paylineIdx];
+      const points = [];
+      for (let r = 0; r < w.count; r++) {
+        const row = payline.rows[r];
+        const cx = this.REEL_WINDOW_X + r * this.CELL_W + this.CELL_W / 2;
+        const cy = this.REEL_WINDOW_Y + row * this.CELL_H + this.CELL_H / 2;
+        points.push({ x: cx, y: cy });
+
+        // Pulse the winning cell
+        const cell = this.cells[r][row];
+        this.tweens.add({
+          targets: cell,
+          scaleX: 1.25, scaleY: 1.25,
+          yoyo: true, duration: 220, repeat: 2,
+          ease: 'Sine.easeInOut'
+        });
+      }
+
+      // Connecting amber line with glow circles at each node
+      const g = this.add.graphics();
+      g.lineStyle(3, 0xe8c547, 0.9);
+      for (let i = 0; i < points.length - 1; i++) {
+        g.lineBetween(points[i].x, points[i].y, points[i + 1].x, points[i + 1].y);
+      }
+      g.fillStyle(0xe8c547, 0.45);
+      for (const pt of points) g.fillCircle(pt.x, pt.y, 9);
+
+      // Fade the highlight out after a beat
+      this.tweens.add({
+        targets: g,
+        alpha: 0,
+        delay: 1500,
+        duration: 600,
+        ease: 'Sine.easeOut',
+        onComplete: () => g.destroy()
+      });
+    }
+  }
+
+  // ============================================================
+  // BONUS ROUND — the cursed urns. 3+ scatters → modal overlay.
+  // ============================================================
+  showBonusRound(scatterCount) {
+    // Pre-roll the 5 urn outcomes for this trigger:
+    //   1 jackpot (10 marrow), 1 cursed (0), 3 small (1–3 marrow each)
+    const outcomes = [
+      { type: 'jackpot', marrow: 10 },
+      { type: 'cursed',  marrow: 0 },
+      { type: 'small',   marrow: 1 + Math.floor(Math.random() * 3) },
+      { type: 'small',   marrow: 1 + Math.floor(Math.random() * 3) },
+      { type: 'small',   marrow: 1 + Math.floor(Math.random() * 3) }
+    ];
+    // Fisher–Yates so the jackpot/cursed positions are random
+    for (let i = outcomes.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [outcomes[i], outcomes[j]] = [outcomes[j], outcomes[i]];
+    }
+
+    const modal = this.add.container(0, 0);
+    modal.setDepth(1000);
+
+    // Dim background — full-screen veil
+    const dim = this.add.graphics();
+    dim.fillStyle(0x000000, 0.88);
+    dim.fillRect(0, 0, 1280, 720);
+    modal.add(dim);
+
+    // Title — hot accent (the only place the parlor uses bright orange)
+    const title = this.add.text(640, 130, 'THE URNS', {
+      fontFamily: '"Courier New", monospace', fontSize: '38px',
+      fontStyle: 'bold', color: '#ff6b35', letterSpacing: 10,
+      shadow: { offsetX: 0, offsetY: 0, color: '#ff6b35', blur: 16, fill: true }
+    }).setOrigin(0.5);
+    modal.add(title);
+
+    // Subtitle / instruction
+    const sub = this.add.text(640, 200,
+      `${scatterCount} witch's marks. the madame stirs.\nchoose one. she keeps the rest.`,
+      {
+        fontFamily: '"Courier New", monospace', fontSize: '15px',
+        color: '#c9a961', align: 'center', lineSpacing: 8
+      }
+    ).setOrigin(0.5);
+    modal.add(sub);
+
+    // Scatter chord — slot-style win SFX layered as the séance bell
+    if (SFX.bigWin) SFX.bigWin();
+
+    // 5 urns in a row at y=410, centered, 200px apart
+    const spacing = 200;
+    const urnY = 410;
+    const urnX0 = 640 - (5 - 1) * spacing / 2;
+    const urnContainers = [];
+    let picked = false;
+
+    for (let i = 0; i < 5; i++) {
+      const ux = urnX0 + i * spacing;
+      const uc = this.add.container(ux, urnY);
+
+      const urnG = this.add.graphics();
+      this.drawUrn(urnG, 0, 0, 0x2a1810);
+      uc.add(urnG);
+
+      const hit = this.add.zone(0, 0, 110, 140).setOrigin(0.5).setInteractive({ useHandCursor: true });
+      uc.add(hit);
+
+      hit.on('pointerover', () => {
+        if (picked) return;
+        this.tweens.add({ targets: uc, y: urnY - 12, duration: 150, ease: 'Sine.easeOut' });
+      });
+      hit.on('pointerout', () => {
+        if (picked) return;
+        this.tweens.add({ targets: uc, y: urnY, duration: 150, ease: 'Sine.easeOut' });
+      });
+      hit.on('pointerdown', () => {
+        if (picked) return;
+        picked = true;
+        this.revealUrns(urnContainers, outcomes, i, modal);
+      });
+
+      modal.add(uc);
+      urnContainers.push({ container: uc, graphic: urnG, index: i });
+    }
+  }
+
+  // Draw an urn silhouette at (cx, cy). Centered on its widest point.
+  drawUrn(g, cx, cy, color) {
+    // Body — bulbous bottom
+    g.fillStyle(color, 1);
+    g.fillEllipse(cx, cy + 16, 56, 64);
+    // Neck
+    g.fillRect(cx - 14, cy - 14, 28, 32);
+    // Rim
+    g.fillEllipse(cx, cy - 16, 34, 10);
+    // Outlines
+    g.lineStyle(2, 0x6a5030, 0.9);
+    g.strokeEllipse(cx, cy + 16, 56, 64);
+    g.strokeRect(cx - 14, cy - 14, 28, 32);
+    g.strokeEllipse(cx, cy - 16, 34, 10);
+    // Mouth shadow (depth in the opening)
+    g.fillStyle(0x000000, 0.6);
+    g.fillEllipse(cx, cy - 15, 26, 6);
+    // Brass ornamental band
+    g.fillStyle(0xc9a961, 0.55);
+    g.fillRect(cx - 24, cy + 6, 48, 3);
+    // Faint sigil scratch — tiny crescent
+    g.lineStyle(1, 0xc9a961, 0.35);
+    g.beginPath();
+    g.arc(cx, cy + 22, 10, 0.4, Math.PI - 0.4);
+    g.strokePath();
+  }
+
+  // Reveal all urns: selected pops bright with payout, others dim down.
+  revealUrns(urnContainers, outcomes, selectedIdx, modal) {
+    const selected = outcomes[selectedIdx];
+
+    // Award marrow before any animation so HUD updates immediately
+    if (selected.marrow > 0) {
+      const m = this.registry.get('marrow');
+      this.registry.set('marrow', m + selected.marrow);
+    }
+
+    // Outcome-specific sting
+    if (selected.type === 'jackpot') { if (SFX.bigWin) SFX.bigWin(); }
+    else if (selected.type === 'cursed') { if (SFX.crtFlicker) SFX.crtFlicker(0.35, 0.4); }
+    else { if (SFX.slotHit) SFX.slotHit(2); }
+
+    urnContainers.forEach((uc, i) => {
+      const outcome = outcomes[i];
+      const isSelected = i === selectedIdx;
+
+      if (isSelected) {
+        // Selected: scale up + recolor the urn glyph to a warmer hue
+        this.tweens.add({
+          targets: uc.container,
+          scaleX: 1.3, scaleY: 1.3,
+          duration: 320, ease: 'Back.easeOut'
+        });
+      } else {
+        this.tweens.add({ targets: uc.container, alpha: 0.45, duration: 320 });
+      }
+
+      // Label floating above the urn
+      const labelColor = outcome.type === 'jackpot' ? '#ff6b35' :
+                         outcome.type === 'cursed'  ? '#5a4030' : '#c9a961';
+      const labelText  = outcome.type === 'cursed' ? '—' : `+${outcome.marrow}`;
+      const label = this.add.text(uc.container.x, uc.container.y - 95, labelText, {
+        fontFamily: '"Courier New", monospace',
+        fontSize: isSelected ? '34px' : '20px',
+        fontStyle: 'bold',
+        color: labelColor
+      }).setOrigin(0.5).setAlpha(0).setDepth(1001);
+      modal.add(label);
+      this.tweens.add({
+        targets: label,
+        alpha: 1, y: label.y - 12,
+        duration: 600, ease: 'Sine.easeOut'
+      });
+    });
+
+    // After the reveal settles, fade everything out and return to reels
+    this.time.delayedCall(2200, () => {
+      const prompt = this.add.text(640, 630, '[ click to continue ]', {
+        fontFamily: '"Courier New", monospace', fontSize: '14px',
+        color: '#8b6f47', letterSpacing: 2
+      }).setOrigin(0.5).setAlpha(0).setDepth(1001);
+      modal.add(prompt);
+      this.tweens.add({
+        targets: prompt, alpha: 0.85, yoyo: true, repeat: -1,
+        duration: 1200, ease: 'Sine.easeInOut'
+      });
+
+      // Full-screen invisible dismiss zone (above the urns)
+      const dismiss = this.add.zone(640, 360, 1280, 720).setOrigin(0.5)
+        .setInteractive({ useHandCursor: false }).setDepth(1002);
+      modal.add(dismiss);
+      dismiss.once('pointerdown', () => {
+        this.tweens.add({
+          targets: modal, alpha: 0, duration: 500,
+          onComplete: () => {
+            modal.destroy();
+            this.spinning = false;
+            this.lastWinText.setColor('#ff6b35');
+            this.lastWinText.setText(
+              selected.marrow > 0
+                ? `+${selected.marrow} marrow`
+                : 'cursed. she keeps yours.'
+            );
+          }
+        });
+      });
     });
   }
 
