@@ -37,6 +37,14 @@ export class Blackjack extends Phaser.Scene {
     this.firstDecision = true;
     this.insuranceBet = 0;
     this.surrendered = false;
+    // Split state — set when the player splits matching ranks on their first decision.
+    this.splitHand = [];
+    this.splitData = [];
+    this.splitStake = 0;
+    this.splitDoubled = false;
+    this.isSplit = false;
+    this.playingSecondHand = false;
+    this.splitAces = false;
 
     this.createEnvironment();
     this.createLayout();
@@ -252,6 +260,14 @@ export class Blackjack extends Phaser.Scene {
       color: '#c9a961'
     }).setOrigin(0.5);
 
+    // Second hand value text — only visible when the player splits. Sits to
+    // the right of hand 1 (which we'll have shifted left); hidden by default.
+    this.splitValueText = this.add.text(860, 435, '', {
+      fontFamily: '"Courier New", monospace',
+      fontSize: '18px',
+      color: '#c9a961'
+    }).setOrigin(0.5).setVisible(false);
+
     this.add.text(640, 640, 'P L A Y E R', {
       fontFamily: '"Courier New", monospace',
       fontSize: '13px',
@@ -326,6 +342,8 @@ export class Blackjack extends Phaser.Scene {
     this.doubleBtn    = this.makeActionBtn(140, 412, 220, 44, 'DOUBLE',    () => this.playerDouble());
     this.surrenderBtn = this.makeActionBtn(140, 464, 220, 40, 'SURRENDER', () => this.playerSurrender(),
       { color: '#8b6f47', border: 0x6a5030, hoverColor: '#c9a961', hoverBorder: 0xc9a961, fontSize: '17px' });
+    this.splitBtn = this.makeActionBtn(140, 516, 220, 40, 'SPLIT', () => this.playerSplit(),
+      { color: '#8b6f47', border: 0x6a5030, hoverColor: '#c9a961', hoverBorder: 0xc9a961, fontSize: '17px' });
   }
 
   makeActionBtn(x, y, w, h, label, handler, style = {}) {
@@ -376,9 +394,17 @@ export class Blackjack extends Phaser.Scene {
     this.dealBtn.setVisible(false);
     this.hitBtn.setVisible(true);
     this.standBtn.setVisible(true);
-    const canDouble = firstDecision && this.registry.get('chips') >= this.currentBet;
+    const stake = this.activeStake();
+    const canDouble = firstDecision && this.registry.get('chips') >= stake;
     this.doubleBtn.setVisible(canDouble);
-    this.surrenderBtn.setVisible(firstDecision);
+    // Surrender + Split are only legal on the ORIGINAL hand's first decision.
+    // After a split, neither comes back.
+    this.surrenderBtn.setVisible(firstDecision && !this.isSplit);
+    const data = this.activeData();
+    const canSplit = firstDecision && !this.isSplit && data.length === 2 &&
+                     data[0].rank === data[1].rank &&
+                     this.registry.get('chips') >= this.currentBet;
+    this.splitBtn.setVisible(canSplit);
   }
 
   hideAllActions() {
@@ -387,6 +413,7 @@ export class Blackjack extends Phaser.Scene {
     this.standBtn.setVisible(false);
     this.doubleBtn.setVisible(false);
     this.surrenderBtn.setVisible(false);
+    this.splitBtn.setVisible(false);
   }
 
   updateBetButtons() {
@@ -405,9 +432,15 @@ export class Blackjack extends Phaser.Scene {
   // ---------- fan geometry ----------
 
   fanPosition(who, index, total) {
-    const y = who === 'player' ? this.PLAYER_Y : this.DEALER_Y;
+    const y = who === 'dealer' ? this.DEALER_Y : this.PLAYER_Y;
+    // When the player splits, hand 1 sits left of center, hand 2 sits right.
+    let centerX = this.FAN_CENTER_X;
+    if (this.isSplit) {
+      if (who === 'player') centerX = this.FAN_CENTER_X - 220;
+      else if (who === 'split') centerX = this.FAN_CENTER_X + 220;
+    }
     const mid = (total - 1) / 2;
-    const x = this.FAN_CENTER_X + (index - mid) * this.FAN_STEP;
+    const x = centerX + (index - mid) * this.FAN_STEP;
     const rot = (index - mid) * this.FAN_ROT_PER_CARD;
     return { x, y, rot };
   }
@@ -438,16 +471,27 @@ export class Blackjack extends Phaser.Scene {
     // Clear old hand
     this.playerHand.forEach(c => c.destroy());
     this.dealerHand.forEach(c => c.destroy());
+    this.splitHand.forEach(c => c.destroy());
     this.playerHand = [];
     this.dealerHand = [];
+    this.splitHand = [];
     this.playerData = [];
     this.dealerData = [];
+    this.splitData = [];
     this.doubledDown = false;
+    this.splitDoubled = false;
+    this.isSplit = false;
+    this.playingSecondHand = false;
+    this.splitAces = false;
+    this.splitStake = 0;
     this.firstDecision = true;
     this.insuranceBet = 0;
     this.surrendered = false;
     this.playerValueText.setText('');
     this.dealerValueText.setText('');
+    this.splitValueText.setText('');
+    this.splitValueText.setVisible(false);
+    this.playerValueText.setX(640);  // reset in case it was shifted last hand
 
     // Take the bet
     this.registry.set('chips', this.registry.get('chips') - this.currentBet);
@@ -496,8 +540,10 @@ export class Blackjack extends Phaser.Scene {
 
   async dealTo(who, faceUp, delay) {
     const cardData = this.deck.pop();
-    const handArr = who === 'player' ? this.playerHand : this.dealerHand;
-    const dataArr = who === 'player' ? this.playerData : this.dealerData;
+    let handArr, dataArr;
+    if (who === 'split') { handArr = this.splitHand; dataArr = this.splitData; }
+    else if (who === 'player') { handArr = this.playerHand; dataArr = this.playerData; }
+    else { handArr = this.dealerHand; dataArr = this.dealerData; }
 
     const newIndex = handArr.length;
     const newTotal = newIndex + 1;
@@ -699,20 +745,28 @@ export class Blackjack extends Phaser.Scene {
 
   // ---------- player actions ----------
 
+  // ----- Helpers — which hand is the player acting on right now? -----
+  activeData() { return this.playingSecondHand ? this.splitData : this.playerData; }
+  activeWho()  { return this.playingSecondHand ? 'split' : 'player'; }
+  activeStake() { return this.playingSecondHand ? this.splitStake : this.currentBet; }
+  updateActiveValue() {
+    if (this.playingSecondHand) this.updateSplitValue();
+    else this.updatePlayerValue();
+  }
+
   async playerHit() {
     if (this.state !== 'PLAYER_TURN') return;
     this.firstDecision = false;
     this.hideAllActions();
 
-    await this.dealTo('player', true, 0);
-    this.updatePlayerValue();
-    const v = handValue(this.playerData);
+    await this.dealTo(this.activeWho(), true, 0);
+    this.updateActiveValue();
+    const v = handValue(this.activeData());
 
     if (v.isBust) {
-      this.state = 'RESOLVING';
-      this.time.delayedCall(600, () => this.resolveHand());
+      this.time.delayedCall(600, () => this.advanceHand());
     } else if (v.value === 21) {
-      await this.playerStand();
+      await this.advanceHand();
     } else {
       this.state = 'PLAYER_TURN';
       this.showPlayerTurnUI(false);
@@ -721,31 +775,136 @@ export class Blackjack extends Phaser.Scene {
 
   async playerStand() {
     if (this.state !== 'PLAYER_TURN' && this.state !== 'DEALING') return;
-    this.state = 'DEALER_TURN';
     this.hideAllActions();
-    await this.dealerPlay();
+    await this.advanceHand();
   }
 
   async playerDouble() {
     if (this.state !== 'PLAYER_TURN' || !this.firstDecision) return;
-    if (this.registry.get('chips') < this.currentBet) return;
+    const stake = this.activeStake();
+    if (this.registry.get('chips') < stake) return;
 
     this.firstDecision = false;
-    this.registry.set('chips', this.registry.get('chips') - this.currentBet);
+    this.registry.set('chips', this.registry.get('chips') - stake);
     this.updateChipDisplay();
-    this.doubledDown = true;
+    if (this.playingSecondHand) this.splitDoubled = true;
+    else this.doubledDown = true;
     this.hideAllActions();
 
-    await this.dealTo('player', true, 0);
-    this.updatePlayerValue();
-    const v = handValue(this.playerData);
+    await this.dealTo(this.activeWho(), true, 0);
+    this.updateActiveValue();
+    // Doubling locks the hand — bust or not, we advance.
+    await this.advanceHand();
+  }
 
-    if (v.isBust) {
-      this.state = 'RESOLVING';
-      this.time.delayedCall(600, () => this.resolveHand());
-    } else {
+  // ----- Split — separates a matching-rank pair into two parallel hands. -----
+  async playerSplit() {
+    if (this.state !== 'PLAYER_TURN' || !this.firstDecision) return;
+    if (this.isSplit) return;
+    if (this.playerData.length !== 2) return;
+    if (this.playerData[0].rank !== this.playerData[1].rank) return;
+    if (this.registry.get('chips') < this.currentBet) return;
+
+    this.isSplit = true;
+    this.firstDecision = false;
+    this.hideAllActions();
+
+    // Take the second stake
+    this.registry.set('chips', this.registry.get('chips') - this.currentBet);
+    this.updateChipDisplay();
+    this.splitStake = this.currentBet;
+
+    // Move the 2nd card from playerHand → splitHand[0]
+    this.splitData.push(this.playerData.pop());
+    this.splitHand.push(this.playerHand.pop());
+
+    // Aces are special: each split hand gets exactly one card, then auto-stand
+    this.splitAces = this.playerData[0].rank === 'A';
+
+    // Reposition existing cards into the split layout (hand 1 left, hand 2 right)
+    await this.refanHand('player');
+    await this.refanHand('split');
+
+    await this.wait(220);
+
+    // Deal one more card to each hand to complete them
+    await this.dealTo('player', true, 0);
+    await this.dealTo('split', true, 100);
+
+    // Show both hand totals
+    this.playerValueText.setX(420);
+    this.splitValueText.setVisible(true);
+    this.updatePlayerValue();
+    this.updateSplitValue();
+
+    // Aces: both hands resolve now without further play
+    if (this.splitAces) {
+      this.playingSecondHand = false;
+      this.state = 'DEALER_TURN';
+      await this.dealerPlay();
+      return;
+    }
+
+    // Hand 1's decisions first
+    this.playingSecondHand = false;
+    this.firstDecision = true;
+    this.state = 'PLAYER_TURN';
+    this.showPlayerTurnUI(true);
+  }
+
+  // Smoothly tween all cards in a single hand to their current fan positions
+  // (used right after split moves the 2nd card across).
+  refanHand(who) {
+    const hand = who === 'split'  ? this.splitHand  :
+                 who === 'player' ? this.playerHand :
+                 this.dealerHand;
+    const total = hand.length;
+    return new Promise(resolve => {
+      if (total === 0) { resolve(); return; }
+      let remaining = total;
+      for (let i = 0; i < total; i++) {
+        const p = this.fanPosition(who, i, total);
+        this.tweens.add({
+          targets: hand[i].container,
+          x: p.x, y: p.y, rotation: p.rot,
+          duration: 300,
+          ease: 'Sine.easeOut',
+          onComplete: () => { if (--remaining === 0) resolve(); }
+        });
+      }
+    });
+  }
+
+  updateSplitValue() {
+    const v = handValue(this.splitData);
+    let t = `${v.value}`;
+    if (v.isSoft && !v.isBlackjack) t = `SOFT ${v.value}`;
+    if (v.isBlackjack) t = '21';   // 21-after-split is not a natural blackjack
+    if (v.isBust) t = `BUST — ${v.value}`;
+    this.splitValueText.setText(t);
+    this.splitValueText.setColor(v.isBust ? '#c24f2a' : '#c9a961');
+  }
+
+  // After a hand stands / busts / completes a double, decide what happens next:
+  // hand 2's turn if we just finished hand 1 of a split, otherwise the dealer.
+  async advanceHand() {
+    if (this.isSplit && !this.playingSecondHand) {
+      this.playingSecondHand = true;
+      this.firstDecision = true;
       this.state = 'PLAYER_TURN';
-      await this.playerStand();
+      const v = handValue(this.splitData);
+      if (v.isBust) {
+        this.time.delayedCall(600, () => this.advanceHand());
+        return;
+      }
+      if (v.value === 21) {
+        await this.advanceHand();
+        return;
+      }
+      this.showPlayerTurnUI(true);
+    } else {
+      this.state = 'DEALER_TURN';
+      await this.dealerPlay();
     }
   }
 
@@ -769,14 +928,21 @@ export class Blackjack extends Phaser.Scene {
   // ---------- dealer ----------
 
   async dealerPlay() {
+    // If every player hand busted, the dealer doesn't bother playing out.
+    const playerHands = [this.playerData];
+    if (this.isSplit) playerHands.push(this.splitData);
+    const allBust = playerHands.every(h => handValue(h).isBust);
+
     await this.dealerHand[1].flip();
     this.updateDealerValue(false);
     await this.wait(500);
 
-    while (handValue(this.dealerData).value < 17) {
-      await this.dealTo('dealer', true, 0);
-      this.updateDealerValue(false);
-      await this.wait(550);
+    if (!allBust) {
+      while (handValue(this.dealerData).value < 17) {
+        await this.dealTo('dealer', true, 0);
+        this.updateDealerValue(false);
+        await this.wait(550);
+      }
     }
 
     this.state = 'RESOLVING';
@@ -838,6 +1004,11 @@ export class Blackjack extends Phaser.Scene {
   // ---------- resolution ----------
 
   resolveHand() {
+    // Split is its own resolution path — both hands evaluated independently
+    if (this.isSplit) {
+      this.resolveSplit();
+      return;
+    }
     // Surrender is its own resolution path
     if (this.surrendered) {
       const halfBack = Math.floor(this.currentBet / 2);
@@ -937,6 +1108,55 @@ export class Blackjack extends Phaser.Scene {
     );
 
     this.fadeBannerAndReset(2400);
+  }
+
+  // ---------- split resolution ----------
+  // Evaluate each hand independently against the dealer. Sum payouts.
+  // 21-after-split is NOT a natural (no 3:2 bonus), per standard rules.
+  resolveSplit() {
+    const dv = handValue(this.dealerData);
+    const hands = [
+      { data: this.playerData, stake: this.currentBet * (this.doubledDown ? 2 : 1) },
+      { data: this.splitData,  stake: this.splitStake  * (this.splitDoubled ? 2 : 1) }
+    ];
+
+    const results = [];
+    let totalPayout = 0;
+    for (const h of hands) {
+      const pv = handValue(h.data);
+      let result, payout;
+      if (pv.isBust)             { result = 'BUST';        payout = 0; }
+      else if (dv.isBlackjack)   { result = 'DEALER BJ';   payout = 0; }
+      else if (dv.isBust)        { result = 'DEALER BUST'; payout = h.stake * 2; }
+      else if (pv.value > dv.value) { result = 'WIN';      payout = h.stake * 2; }
+      else if (pv.value < dv.value) { result = 'LOSS';     payout = 0; }
+      else                       { result = 'PUSH';        payout = h.stake; }
+      results.push({ result, payout, net: payout - h.stake });
+      totalPayout += payout;
+    }
+
+    this.registry.set('chips', this.registry.get('chips') + totalPayout);
+    this.updateChipDisplay();
+
+    const banner = `${results[0].result} / ${results[1].result}`;
+    const net = results[0].net + results[1].net;
+    const color = net > 0 ? '#c9a961' : net < 0 ? '#c24f2a' : '#8b6f47';
+    this.resultText.setText(banner);
+    this.resultText.setColor(color);
+    this.resultText.setShadow(0, 0, color, 14, true);
+    this.resultText.setScale(1.2);
+    this.resultText.setAlpha(0);
+    this.tweens.add({
+      targets: this.resultText,
+      alpha: 1, scaleX: 1, scaleY: 1,
+      duration: 350, ease: 'Sine.easeOut'
+    });
+
+    const sign = net > 0 ? '+' : '';
+    this.lastResultText.setText(`LAST: SPLIT ${banner} / ${sign}${net}`);
+    this.lastResultText.setColor(color);
+
+    this.fadeBannerAndReset(2800);
   }
 
   fadeBannerAndReset(holdMs) {
