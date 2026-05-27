@@ -7,10 +7,10 @@ import { GameState } from '../state.js';
 // unbuilt variants show a "coming soon" toast on click.
 
 const TABLES = [
-  { id: 'VideoPoker',     name: 'VIDEO POKER',  scene: null, x: 360, y: 310 },
-  { id: 'ThreeCardPoker', name: 'THREE-CARD',   scene: null, x: 920, y: 310 },
-  { id: 'CaribbeanStud',  name: 'CARIBBEAN',    scene: null, x: 360, y: 530 },
-  { id: 'HoldEm',         name: "HOLD 'EM",     scene: null, x: 920, y: 530 }
+  { id: 'VideoPoker',     name: 'VIDEO POKER',  scene: 'VideoPoker', x: 360, y: 310 },
+  { id: 'ThreeCardPoker', name: 'THREE-CARD',   scene: null,         x: 920, y: 310 },
+  { id: 'CaribbeanStud',  name: 'CARIBBEAN',    scene: null,         x: 360, y: 530 },
+  { id: 'HoldEm',         name: "HOLD 'EM",     scene: null,         x: 920, y: 530 }
 ];
 
 export class Poker extends Phaser.Scene {

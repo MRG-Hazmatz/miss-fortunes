@@ -8,6 +8,7 @@ import { Bookie } from './scenes/Bookie.js';
 import { Roulette } from './scenes/Roulette.js';
 import { Slots } from './scenes/Slots.js';
 import { Poker } from './scenes/Poker.js';
+import { VideoPoker } from './scenes/VideoPoker.js';
 
 const config = {
   type: Phaser.AUTO,
@@ -22,7 +23,7 @@ const config = {
       debug: false
     }
   },
-  scene: [Boot, SaveSelect, Parlor, Plinko, Blackjack, Bookie, Roulette, Slots, Poker],
+  scene: [Boot, SaveSelect, Parlor, Plinko, Blackjack, Bookie, Roulette, Slots, Poker, VideoPoker],
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH
