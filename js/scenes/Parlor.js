@@ -15,7 +15,7 @@ export class Parlor extends Phaser.Scene {
       { name: 'THE BOOKIE',         locked: false, scene: 'Bookie',    neon: 0x4a7a4a, hex: '#4a7a4a' },
       { name: 'ROULETTE',           locked: false, scene: 'Roulette',  neon: 0xa89050, hex: '#a89050' },
       { name: 'SLOTS',              locked: false, scene: 'Slots',     neon: 0x8a4a5a, hex: '#8a4a5a' },
-      { name: 'POKER',              locked: true,  scene: null,        neon: 0x4a5a6a, hex: '#4a5a6a' },
+      { name: 'POKER',              locked: false, scene: 'Poker',     neon: 0x4a5a6a, hex: '#4a5a6a' },
       { name: 'THE FORTUNE\nTELLER', locked: true, scene: null,        neon: 0x5a3a6a, hex: '#5a3a6a' },
       { name: 'THE BACK\nROOM',     locked: true,  scene: null,        neon: 0x4a0000, hex: '#4a0000', dying: true }
     ];
@@ -199,11 +199,9 @@ export class Parlor extends Phaser.Scene {
     mkLink(1040, 'exit', () => this.showExitConfirm());
   }
 
-  // Friendly reminder modal — the game is browser-based and can't really
-  // close itself (browsers block window.close()), but a clear "your save
-  // is preserved, you can close this tab whenever" softens the off-ramp.
-  // When we eventually wrap this in Tauri, swap the OK button for a real
-  // app.exit() call.
+  // Exit confirmation — fades back to the Boot title scene so the player
+  // gets a clean off-ramp. Save is already persisted by the auto-save hook;
+  // they can close the tab whenever from the title, or click in to continue.
   showExitConfirm() {
     if (this._exitModal) return;
 
@@ -217,20 +215,19 @@ export class Parlor extends Phaser.Scene {
 
     const bg = this.add.graphics();
     bg.fillStyle(0x0f0906, 0.98);
-    bg.fillRoundedRect(-260, -100, 520, 200, 8);
+    bg.fillRoundedRect(-280, -110, 560, 220, 8);
     bg.lineStyle(2, 0xa89050, 0.75);
-    bg.strokeRoundedRect(-260, -100, 520, 200, 8);
+    bg.strokeRoundedRect(-280, -110, 560, 220, 8);
     box.add(bg);
 
-    const tag = scene => null; // (kept tidy — no header tag for this dialog)
-    const q = this.add.text(0, -50, 'leaving so soon?', {
+    const q = this.add.text(0, -65, 'leaving so soon?', {
       fontFamily: '"Courier New", monospace', fontSize: '17px',
       fontStyle: 'bold', color: '#c9a961'
     }).setOrigin(0.5);
     box.add(q);
 
-    const sub = this.add.text(0, -15,
-      'Close this tab to exit.\nYour progress is saved to this profile.',
+    const sub = this.add.text(0, -25,
+      'your progress is saved.\nthe parlor will wait for you.',
       {
         fontFamily: '"Courier New", monospace', fontSize: '12px',
         color: '#8b6f47', align: 'center', lineSpacing: 4
@@ -238,28 +235,54 @@ export class Parlor extends Phaser.Scene {
     ).setOrigin(0.5);
     box.add(sub);
 
-    const btnW = 140, btnH = 40;
-    const btn = this.add.container(0, 55);
-    const btnBg = this.add.graphics();
-    btnBg.fillStyle(0x1a1208, 0.95);
-    btnBg.fillRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 6);
-    btnBg.lineStyle(2, 0xa89050, 0.85);
-    btnBg.strokeRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 6);
-    const btnTxt = this.add.text(0, 0, 'OK', {
-      fontFamily: '"Courier New", monospace', fontSize: '14px',
-      fontStyle: 'bold', color: '#a89050'
-    }).setOrigin(0.5);
-    btn.add([btnBg, btnTxt]);
-    const hit = this.add.zone(0, 0, btnW, btnH).setOrigin(0.5).setInteractive({ useHandCursor: true });
-    btn.add(hit);
-    hit.on('pointerover', () => btnTxt.setColor('#ffd8a0'));
-    hit.on('pointerout',  () => btnTxt.setColor('#a89050'));
-    hit.on('pointerdown', () => {
+    // Helper to build one of the two side-by-side buttons.
+    const mkBtn = (offsetX, label, idleColor, hoverColor, borderColor, hoverBorder, onClick) => {
+      const btnW = 200, btnH = 42;
+      const btn = this.add.container(offsetX, 55);
+      const btnBg = this.add.graphics();
+      btnBg.fillStyle(0x1a1208, 0.95);
+      btnBg.fillRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 6);
+      btnBg.lineStyle(2, borderColor, 0.85);
+      btnBg.strokeRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 6);
+      const btnTxt = this.add.text(0, 0, label, {
+        fontFamily: '"Courier New", monospace', fontSize: '14px',
+        fontStyle: 'bold', color: idleColor, letterSpacing: 2
+      }).setOrigin(0.5);
+      btn.add([btnBg, btnTxt]);
+      const hit = this.add.zone(0, 0, btnW, btnH).setOrigin(0.5).setInteractive({ useHandCursor: true });
+      btn.add(hit);
+      hit.on('pointerover', () => {
+        btnTxt.setColor(hoverColor);
+        btnBg.clear();
+        btnBg.fillStyle(0x2a1810, 1);
+        btnBg.fillRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 6);
+        btnBg.lineStyle(2, hoverBorder, 1);
+        btnBg.strokeRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 6);
+      });
+      hit.on('pointerout', () => {
+        btnTxt.setColor(idleColor);
+        btnBg.clear();
+        btnBg.fillStyle(0x1a1208, 0.95);
+        btnBg.fillRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 6);
+        btnBg.lineStyle(2, borderColor, 0.85);
+        btnBg.strokeRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 6);
+      });
+      hit.on('pointerdown', onClick);
+      return btn;
+    };
+
+    // "exit to title" — fades to Boot
+    box.add(mkBtn(-110, 'exit to title', '#c9a961', '#ffd8a0', 0xc9a961, 0xffd8a0, () => {
+      this.cameras.main.fadeOut(700, 5, 3, 2);
+      this.cameras.main.once('camerafadeoutcomplete', () => this.scene.start('Boot'));
+    }));
+
+    // "stay" — closes the modal
+    box.add(mkBtn(110, 'stay', '#8b6f47', '#c9a961', 0x6a5030, 0xa89050, () => {
       dim.destroy();
       box.destroy();
       this._exitModal = null;
-    });
-    box.add(btn);
+    }));
 
     this._exitModal = { dim, box };
   }
