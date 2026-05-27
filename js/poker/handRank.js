@@ -78,3 +78,103 @@ export function evalPokerHand(cards) {
   }
   return byRank('no_win');
 }
+
+// ============================================================
+// 3-Card Poker
+// ============================================================
+//
+// Important quirk: in 3-card poker, THREE OF A KIND beats STRAIGHT, because
+// there are fewer ways to make trips with 3 cards than with 5.
+//
+// Tiers, top to bottom:
+//   Mini Royal (suited A-K-Q)  → highest
+//   Straight Flush             → 3 consecutive same suit (excl. mini royal)
+//   Three of a Kind
+//   Straight                   → 3 consecutive any suit (incl. A-2-3 "wheel")
+//   Flush                      → 3 same suit, non-consecutive
+//   Pair
+//   High Card                  → none of the above
+
+export const THREE_CARD_TIERS = [
+  { rank: 'mini_royal',      name: 'MINI ROYAL',      tierValue: 7, pairPlus: 100, anteBonus: 5 },
+  { rank: 'straight_flush',  name: 'STRAIGHT FLUSH',  tierValue: 6, pairPlus: 40,  anteBonus: 5 },
+  { rank: 'three_of_a_kind', name: 'THREE OF A KIND', tierValue: 5, pairPlus: 30,  anteBonus: 4 },
+  { rank: 'straight',        name: 'STRAIGHT',        tierValue: 4, pairPlus: 6,   anteBonus: 1 },
+  { rank: 'flush',           name: 'FLUSH',           tierValue: 3, pairPlus: 4,   anteBonus: 0 },
+  { rank: 'pair',            name: 'PAIR',            tierValue: 2, pairPlus: 1,   anteBonus: 0 },
+  { rank: 'high_card',       name: 'HIGH CARD',       tierValue: 1, pairPlus: 0,   anteBonus: 0 }
+];
+
+export function evalThreeCardHand(cards) {
+  if (!cards || cards.length !== 3) return null;
+  // descending by value
+  const values = cards.map(c => RANK_VALUE[c.rank]).slice().sort((a, b) => b - a);
+  const suits  = cards.map(c => c.suit.name);
+
+  const isFlush = suits.every(s => s === suits[0]);
+
+  // Straight: 3 consecutive descending → diffs of 1, 1
+  let isStraight = (values[0] - values[1] === 1) && (values[1] - values[2] === 1);
+  // Wheel: A-2-3. Sorted desc = [14, 3, 2]. Ace plays low.
+  const isWheel = values[0] === 14 && values[1] === 3 && values[2] === 2;
+  if (isWheel) isStraight = true;
+  // High card on the wheel is 3, not Ace (Ace is low)
+  const straightHigh = isWheel ? 3 : values[0];
+
+  const isMiniRoyal = isFlush && values[0] === 14 && values[1] === 13 && values[2] === 12;
+
+  const counts = {};
+  for (const c of cards) counts[c.rank] = (counts[c.rank] || 0) + 1;
+  const isTrips = Object.values(counts).some(c => c === 3);
+  const isPair  = !isTrips && Object.values(counts).some(c => c === 2);
+
+  let tier;
+  if (isMiniRoyal)               tier = THREE_CARD_TIERS[0];
+  else if (isFlush && isStraight) tier = THREE_CARD_TIERS[1];
+  else if (isTrips)               tier = THREE_CARD_TIERS[2];
+  else if (isStraight)            tier = THREE_CARD_TIERS[3];
+  else if (isFlush)               tier = THREE_CARD_TIERS[4];
+  else if (isPair)                tier = THREE_CARD_TIERS[5];
+  else                            tier = THREE_CARD_TIERS[6];
+
+  // Kickers for tiebreaks, always descending priority
+  let kickers;
+  if (isMiniRoyal) {
+    kickers = [14, 13, 12];
+  } else if (isStraight) {
+    kickers = [straightHigh, straightHigh - 1, straightHigh - 2];
+  } else if (isTrips) {
+    const tripV = RANK_VALUE[Object.entries(counts).find(([, v]) => v === 3)[0]];
+    kickers = [tripV, tripV, tripV];
+  } else if (isPair) {
+    const pairV   = RANK_VALUE[Object.entries(counts).find(([, v]) => v === 2)[0]];
+    const kickerV = RANK_VALUE[Object.entries(counts).find(([, v]) => v === 1)[0]];
+    kickers = [pairV, pairV, kickerV];
+  } else {
+    kickers = values;
+  }
+  // Composite score so compareThreeCard is a single subtraction
+  const score = tier.tierValue * 1e6 + kickers[0] * 1e4 + kickers[1] * 100 + kickers[2];
+
+  // Dealer qualifies on Queen-high-or-better.
+  // Anything above high-card (pair+) qualifies; high-card needs Q or higher.
+  const qualifies = tier.tierValue >= 2 || values[0] >= 12;
+
+  return {
+    rank: tier.rank,
+    name: tier.name,
+    tierValue: tier.tierValue,
+    pairPlus: tier.pairPlus,
+    anteBonus: tier.anteBonus,
+    kickers,
+    score,
+    qualifies,
+    highCard: values[0]
+  };
+}
+
+// >0 if a wins, <0 if b wins, 0 if push
+export function compareThreeCard(a, b) {
+  return a.score - b.score;
+}
+
