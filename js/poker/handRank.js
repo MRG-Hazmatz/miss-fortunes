@@ -178,3 +178,132 @@ export function compareThreeCard(a, b) {
   return a.score - b.score;
 }
 
+// ============================================================
+// Caribbean Stud (5-card)
+// ============================================================
+//
+// Same hand rankings as standard 5-card poker, but the paytable applies
+// to the CALL bet only (the ante always pays 1:1 on a win), AND the
+// dealer qualifies on pair+ OR specifically Ace-King high or better.
+
+export const CARIBBEAN_TIERS = [
+  { rank: 'royal_flush',    name: 'ROYAL FLUSH',    callMult: 100, tierValue: 10 },
+  { rank: 'straight_flush', name: 'STRAIGHT FLUSH', callMult: 50,  tierValue: 9  },
+  { rank: 'four_of_a_kind', name: 'FOUR OF A KIND', callMult: 20,  tierValue: 8  },
+  { rank: 'full_house',     name: 'FULL HOUSE',     callMult: 7,   tierValue: 7  },
+  { rank: 'flush',          name: 'FLUSH',          callMult: 5,   tierValue: 6  },
+  { rank: 'straight',       name: 'STRAIGHT',       callMult: 4,   tierValue: 5  },
+  { rank: 'three_of_a_kind',name: 'THREE OF A KIND',callMult: 3,   tierValue: 4  },
+  { rank: 'two_pair',       name: 'TWO PAIR',       callMult: 2,   tierValue: 3  },
+  { rank: 'pair',           name: 'PAIR',           callMult: 1,   tierValue: 2  },
+  { rank: 'high_card',      name: 'HIGH CARD',      callMult: 1,   tierValue: 1  }
+];
+
+const ctByRank = r => CARIBBEAN_TIERS.find(t => t.rank === r);
+
+export function evalCaribbeanHand(cards) {
+  if (!cards || cards.length !== 5) return null;
+
+  // descending values for kicker math + straight detection
+  const values = cards.map(c => RANK_VALUE[c.rank]).slice().sort((a, b) => b - a);
+  const suits  = cards.map(c => c.suit.name);
+
+  const isFlush = suits.every(s => s === suits[0]);
+
+  // 5 consecutive descending → diffs of 1
+  let isStraight = true;
+  for (let i = 1; i < values.length; i++) {
+    if (values[i - 1] - values[i] !== 1) { isStraight = false; break; }
+  }
+  // Wheel: A-5-4-3-2 sorted desc = [14, 5, 4, 3, 2]
+  const isWheel =
+    values[0] === 14 && values[1] === 5 && values[2] === 4 &&
+    values[3] === 3 && values[4] === 2;
+  if (isWheel) isStraight = true;
+  const straightHigh = isWheel ? 5 : values[0];
+
+  // Group ranks: [[rank, count], ...] sorted by count desc, then rank desc
+  const counts = {};
+  for (const c of cards) counts[c.rank] = (counts[c.rank] || 0) + 1;
+  const groups = Object.entries(counts).sort((a, b) => {
+    if (b[1] !== a[1]) return b[1] - a[1];
+    return RANK_VALUE[b[0]] - RANK_VALUE[a[0]];
+  });
+  const topCount    = groups[0][1];
+  const secondCount = groups[1] ? groups[1][1] : 0;
+
+  let tier, kickers;
+
+  if (isFlush && isStraight) {
+    if (!isWheel && values[0] === 14 && values[4] === 10) {
+      tier = ctByRank('royal_flush');
+      kickers = [14, 13, 12, 11, 10];
+    } else {
+      tier = ctByRank('straight_flush');
+      kickers = [straightHigh, straightHigh - 1, straightHigh - 2, straightHigh - 3, straightHigh - 4];
+    }
+  } else if (topCount === 4) {
+    tier = ctByRank('four_of_a_kind');
+    const quadV   = RANK_VALUE[groups[0][0]];
+    const kickerV = RANK_VALUE[groups[1][0]];
+    kickers = [quadV, quadV, quadV, quadV, kickerV];
+  } else if (topCount === 3 && secondCount === 2) {
+    tier = ctByRank('full_house');
+    const tripV = RANK_VALUE[groups[0][0]];
+    const pairV = RANK_VALUE[groups[1][0]];
+    kickers = [tripV, tripV, tripV, pairV, pairV];
+  } else if (isFlush) {
+    tier = ctByRank('flush');
+    kickers = values;
+  } else if (isStraight) {
+    tier = ctByRank('straight');
+    kickers = [straightHigh, straightHigh - 1, straightHigh - 2, straightHigh - 3, straightHigh - 4];
+  } else if (topCount === 3) {
+    tier = ctByRank('three_of_a_kind');
+    const tripV = RANK_VALUE[groups[0][0]];
+    const restV = groups.slice(1).map(([k]) => RANK_VALUE[k]).sort((a, b) => b - a);
+    kickers = [tripV, tripV, tripV, restV[0], restV[1]];
+  } else if (topCount === 2 && secondCount === 2) {
+    tier = ctByRank('two_pair');
+    const hiP = RANK_VALUE[groups[0][0]];
+    const loP = RANK_VALUE[groups[1][0]];
+    const kickerV = RANK_VALUE[groups[2][0]];
+    kickers = [hiP, hiP, loP, loP, kickerV];
+  } else if (topCount === 2) {
+    tier = ctByRank('pair');
+    const pairV = RANK_VALUE[groups[0][0]];
+    const restV = groups.slice(1).map(([k]) => RANK_VALUE[k]).sort((a, b) => b - a);
+    kickers = [pairV, pairV, restV[0], restV[1], restV[2]];
+  } else {
+    tier = ctByRank('high_card');
+    kickers = values;
+  }
+
+  // Composite score for compareCaribbean. Use base 100 per kicker (values
+  // go up to 14, well within range). tierValue × 100^5 dominates.
+  let score = tier.tierValue * 1e10;
+  for (let i = 0; i < 5; i++) score += kickers[i] * Math.pow(100, 4 - i);
+
+  // Dealer qualifies on pair-or-better OR Ace-King-high.
+  // (High-card hands qualify only if they contain both an A and a K.)
+  const ranksInHand = cards.map(c => c.rank);
+  const qualifies = tier.rank !== 'high_card' ||
+                    (ranksInHand.includes('A') && ranksInHand.includes('K'));
+
+  return {
+    rank: tier.rank,
+    name: tier.name,
+    callMult: tier.callMult,
+    tierValue: tier.tierValue,
+    kickers,
+    score,
+    qualifies,
+    highCard: values[0]
+  };
+}
+
+// >0 if a wins, <0 if b wins, 0 if push
+export function compareCaribbean(a, b) {
+  return a.score - b.score;
+}
+

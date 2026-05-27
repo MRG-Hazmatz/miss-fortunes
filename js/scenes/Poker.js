@@ -9,7 +9,7 @@ import { GameState } from '../state.js';
 const TABLES = [
   { id: 'VideoPoker',     name: 'VIDEO POKER',  scene: 'VideoPoker',     x: 360, y: 310 },
   { id: 'ThreeCardPoker', name: 'THREE-CARD',   scene: 'ThreeCardPoker', x: 920, y: 310 },
-  { id: 'CaribbeanStud',  name: 'CARIBBEAN',    scene: null,             x: 360, y: 530 },
+  { id: 'CaribbeanStud',  name: 'CARIBBEAN',    scene: 'CaribbeanStud',  x: 360, y: 530 },
   { id: 'HoldEm',         name: "HOLD 'EM",     scene: null,             x: 920, y: 530 }
 ];
 
