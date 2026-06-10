@@ -16,3 +16,6 @@ Thumbs.db
 
 # OS / OneDrive cruft
 desktop.ini
+
+# Claude Code local permission ledger (machine-specific, churns every session)
+.claude/settings.local.json
