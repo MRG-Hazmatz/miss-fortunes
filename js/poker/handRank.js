@@ -307,3 +307,39 @@ export function compareCaribbean(a, b) {
   return a.score - b.score;
 }
 
+// ============================================================
+// Best-of-seven (Texas Hold'em showdown)
+// ============================================================
+//
+// Given 5-7 cards (2 hole + up to 5 community), return the highest-scoring
+// 5-card hand. Reuses evalCaribbeanHand's composite score so results are
+// directly comparable via compareCaribbean. Fewer than 5 cards → null.
+
+// All 5-card index subsets of a 7-card array (C(7,5) = 21).
+function combinations5(n) {
+  const out = [];
+  for (let a = 0; a < n - 4; a++)
+    for (let b = a + 1; b < n - 3; b++)
+      for (let c = b + 1; c < n - 2; c++)
+        for (let d = c + 1; d < n - 1; d++)
+          for (let e = d + 1; e < n; e++)
+            out.push([a, b, c, d, e]);
+  return out;
+}
+
+export function evalBestOfSeven(cards) {
+  if (!cards || cards.length < 5) return null;
+  if (cards.length === 5) return evalCaribbeanHand(cards);
+
+  let best = null;
+  for (const combo of combinations5(cards.length)) {
+    const five = combo.map(i => cards[i]);
+    const evalResult = evalCaribbeanHand(five);
+    if (!best || evalResult.score > best.score) {
+      best = evalResult;
+      best.cards = five;  // remember which 5 made the hand (for highlight)
+    }
+  }
+  return best;
+}
+
