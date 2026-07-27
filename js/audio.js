@@ -386,5 +386,95 @@ export const SFX = {
       g.gain.exponentialRampToValueAtTime(0.001, t + 0.42);
       osc.start(t); osc.stop(t + 0.45);
     }
+  },
+
+  // === Pinball (THE ORRERY) ===
+
+  // Pop-bumper hit — bright upward blip with a quick body thump.
+  bumperPop() {
+    this.ensure();
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.connect(g); g.connect(this.ctx.destination);
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(420 + Math.random() * 120, t);
+    osc.frequency.exponentialRampToValueAtTime(880, t + 0.05);
+    g.gain.setValueAtTime(0.09, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    osc.start(t); osc.stop(t + 0.14);
+    // low thump body
+    const th = this.ctx.createOscillator();
+    const tg = this.ctx.createGain();
+    th.connect(tg); tg.connect(this.ctx.destination);
+    th.type = 'sine';
+    th.frequency.setValueAtTime(160, t);
+    th.frequency.exponentialRampToValueAtTime(70, t + 0.1);
+    tg.gain.setValueAtTime(0.07, t);
+    tg.gain.exponentialRampToValueAtTime(0.001, t + 0.12);
+    th.start(t); th.stop(t + 0.14);
+  },
+
+  // Flipper flick — mechanical clack (filtered noise tick + low thock).
+  flipperThwack() {
+    this.ensure();
+    const t = this.ctx.currentTime;
+    const dur = 0.05;
+    const bufSize = Math.floor(dur * this.ctx.sampleRate);
+    const buffer = this.ctx.createBuffer(1, bufSize, this.ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < bufSize; i++) data[i] = (Math.random() * 2 - 1) * 0.6;
+    const src = this.ctx.createBufferSource();
+    src.buffer = buffer;
+    const hp = this.ctx.createBiquadFilter();
+    hp.type = 'highpass'; hp.frequency.value = 1200;
+    const g = this.ctx.createGain();
+    src.connect(hp); hp.connect(g); g.connect(this.ctx.destination);
+    g.gain.setValueAtTime(0.05, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    src.start(t); src.stop(t + dur + 0.02);
+    // low thock
+    const osc = this.ctx.createOscillator();
+    const og = this.ctx.createGain();
+    osc.connect(og); og.connect(this.ctx.destination);
+    osc.type = 'square';
+    osc.frequency.setValueAtTime(200, t);
+    osc.frequency.exponentialRampToValueAtTime(90, t + 0.05);
+    og.gain.setValueAtTime(0.04, t);
+    og.gain.exponentialRampToValueAtTime(0.001, t + 0.06);
+    osc.start(t); osc.stop(t + 0.07);
+  },
+
+  // Plunger launch — rising whoosh, brighter/longer with more charge (0..1).
+  plungerLaunch(power = 0.5) {
+    this.ensure();
+    const t = this.ctx.currentTime;
+    const p = Math.max(0.1, Math.min(1, power));
+    const dur = 0.18 + p * 0.22;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.connect(g); g.connect(this.ctx.destination);
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(120, t);
+    osc.frequency.exponentialRampToValueAtTime(120 + p * 620, t + dur);
+    g.gain.setValueAtTime(0.0, t);
+    g.gain.linearRampToValueAtTime(0.07, t + dur * 0.4);
+    g.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    osc.start(t); osc.stop(t + dur + 0.02);
+  },
+
+  // Ball drains — a short descending, deflating tone.
+  drain() {
+    this.ensure();
+    const t = this.ctx.currentTime;
+    const osc = this.ctx.createOscillator();
+    const g = this.ctx.createGain();
+    osc.connect(g); g.connect(this.ctx.destination);
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(300, t);
+    osc.frequency.exponentialRampToValueAtTime(80, t + 0.5);
+    g.gain.setValueAtTime(0.09, t);
+    g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
+    osc.start(t); osc.stop(t + 0.6);
   }
 };

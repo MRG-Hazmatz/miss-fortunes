@@ -12,6 +12,7 @@ import { VideoPoker } from './scenes/VideoPoker.js';
 import { ThreeCardPoker } from './scenes/ThreeCardPoker.js';
 import { CaribbeanStud } from './scenes/CaribbeanStud.js';
 import { HoldEm } from './scenes/HoldEm.js';
+import { Pinball } from './scenes/Pinball.js';
 
 const config = {
   type: Phaser.AUTO,
@@ -26,7 +27,7 @@ const config = {
       debug: false
     }
   },
-  scene: [Boot, SaveSelect, Parlor, Plinko, Blackjack, Bookie, Roulette, Slots, Poker, VideoPoker, ThreeCardPoker, CaribbeanStud, HoldEm],
+  scene: [Boot, SaveSelect, Parlor, Plinko, Blackjack, Bookie, Roulette, Slots, Poker, VideoPoker, ThreeCardPoker, CaribbeanStud, HoldEm, Pinball],
   scale: {
     mode: Phaser.Scale.FIT,
     autoCenter: Phaser.Scale.CENTER_BOTH

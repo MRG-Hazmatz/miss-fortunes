@@ -16,6 +16,7 @@ export class Parlor extends Phaser.Scene {
       { name: 'ROULETTE',           locked: false, scene: 'Roulette',  neon: 0xa89050, hex: '#a89050' },
       { name: 'SLOTS',              locked: false, scene: 'Slots',     neon: 0x8a4a5a, hex: '#8a4a5a' },
       { name: 'POKER',              locked: false, scene: 'Poker',     neon: 0x4a5a6a, hex: '#4a5a6a' },
+      { name: 'THE ORRERY',         locked: false, scene: 'Pinball',   neon: 0x3a6a6a, hex: '#3a6a6a' },
       { name: 'THE FORTUNE\nTELLER', locked: true, scene: null,        neon: 0x5a3a6a, hex: '#5a3a6a' },
       { name: 'THE BACK\nROOM',     locked: true,  scene: null,        neon: 0x4a0000, hex: '#4a0000', dying: true }
     ];
