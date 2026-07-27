@@ -476,5 +476,63 @@ export const SFX = {
     g.gain.setValueAtTime(0.09, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + 0.55);
     osc.start(t); osc.stop(t + 0.6);
+  },
+
+  // Madame Veil speaks — an eerie minor-triad swell + high shimmer.
+  // Punctuates a mission announcement in the CRT ticker.
+  veilSting() {
+    this.ensure();
+    const t = this.ctx.currentTime;
+    // Minor triad (A3, C4, E4) swelling in
+    [220, 262, 330].forEach((f, i) => {
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.connect(g); g.connect(this.ctx.destination);
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(f, t);
+      osc.frequency.linearRampToValueAtTime(f * 1.008, t + 1.1);   // slow detune drift
+      g.gain.setValueAtTime(0, t + i * 0.05);
+      g.gain.linearRampToValueAtTime(0.05, t + i * 0.05 + 0.25);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 1.3);
+      osc.start(t + i * 0.05); osc.stop(t + 1.35);
+    });
+    // High shimmer overtone
+    const sh = this.ctx.createOscillator();
+    const sg = this.ctx.createGain();
+    sh.connect(sg); sg.connect(this.ctx.destination);
+    sh.type = 'triangle';
+    sh.frequency.value = 1320;
+    sg.gain.setValueAtTime(0, t);
+    sg.gain.linearRampToValueAtTime(0.02, t + 0.4);
+    sg.gain.exponentialRampToValueAtTime(0.001, t + 1.2);
+    sh.start(t); sh.stop(t + 1.25);
+  },
+
+  // A rite is completed — mystical ascending arpeggio, bright + rewarding.
+  riteComplete() {
+    this.ensure();
+    const t = this.ctx.currentTime;
+    // Ascending pentatonic-ish flourish
+    const notes = [330, 440, 550, 660, 880];
+    notes.forEach((f, i) => {
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.connect(g); g.connect(this.ctx.destination);
+      osc.type = 'triangle';
+      osc.frequency.value = f;
+      const st = t + i * 0.09;
+      g.gain.setValueAtTime(0.11, st);
+      g.gain.exponentialRampToValueAtTime(0.001, st + 0.45);
+      osc.start(st); osc.stop(st + 0.5);
+    });
+    // Low resonant bloom underneath
+    const low = this.ctx.createOscillator();
+    const lg = this.ctx.createGain();
+    low.connect(lg); lg.connect(this.ctx.destination);
+    low.type = 'sine';
+    low.frequency.value = 110;
+    lg.gain.setValueAtTime(0.08, t);
+    lg.gain.exponentialRampToValueAtTime(0.001, t + 0.9);
+    low.start(t); low.stop(t + 0.95);
   }
 };

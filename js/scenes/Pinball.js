@@ -1,6 +1,8 @@
 import Phaser from 'phaser';
 import { GameState } from '../state.js';
 import { SFX } from '../audio.js';
+import { MissionEngine } from '../pinball/missions.js';
+import { rankName } from '../pinball/ranks.js';
 
 // Pinball.js — THE ORRERY. Space Cadet's systems + feel, occult re-skin.
 // C1: playable table — plunger, two flippers, pop bumpers, 3-ball game,
@@ -48,6 +50,15 @@ export class Pinball extends Phaser.Scene {
     this.flippers    = {};
     this._hudListeners = null;
 
+    // Rites / ranks (C2)
+    this.missionEngine = new MissionEngine();
+    this.rankIndex   = 0;
+    this.rollLamps   = [];    // { img, body, lit }
+    this.dropTargets = [];    // { img, body, dropped }
+    this.rift        = null;  // { img, body, x, y }
+    this._announcing = false;
+    this._crtRevertTimer = null;
+
     // Each scene owns its own Matter world, so tuning gravity here doesn't
     // leak into Plinko's world.
     this.matter.world.setGravity(0, 0.9);
@@ -60,6 +71,9 @@ export class Pinball extends Phaser.Scene {
     this.createTableArt();
     this.buildWalls();
     this.createBumpers();
+    this.createRollovers();
+    this.createDropTargets();
+    this.createRift();
     this.createFlippers();
     this.createCRT();
     this.createStartButton();
@@ -103,6 +117,25 @@ export class Pinball extends Phaser.Scene {
     g.lineStyle(2, 0x6a5030, 0.9); g.strokeRoundedRect(1, 1, 82, 18, 9);
     g.fillStyle(0xffd8a0, 0.5); g.fillRoundedRect(6, 3, 40, 5, 3);
     g.generateTexture('pin_flipper', 84, 20); g.clear();
+
+    // Rollover lamp — white circle (tinted dim/bright at runtime)
+    g.fillStyle(0xffffff, 1); g.fillCircle(11, 11, 9);
+    g.lineStyle(2, 0xffffff, 0.5); g.strokeCircle(11, 11, 10);
+    g.generateTexture('pin_lamp', 22, 22); g.clear();
+
+    // Drop target — upright sigil stone (16×34)
+    g.fillStyle(0x8a4a5a, 1); g.fillRoundedRect(0, 0, 16, 34, 4);
+    g.lineStyle(2, 0xc9a961, 0.85); g.strokeRoundedRect(1, 1, 14, 32, 3);
+    g.lineStyle(1, 0xffd8a0, 0.6); g.lineBetween(8, 6, 8, 28);
+    g.lineBetween(4, 13, 12, 13);
+    g.generateTexture('pin_target', 16, 34); g.clear();
+
+    // The Rift — dark swirl with a teal ring (r=22)
+    g.fillStyle(0x0a0605, 1); g.fillCircle(24, 24, 22);
+    g.lineStyle(3, 0x3a6a6a, 0.9); g.strokeCircle(24, 24, 21);
+    g.lineStyle(1, 0x6ad0d0, 0.5); g.strokeCircle(24, 24, 14);
+    g.lineStyle(1, 0x8b2020, 0.5); g.strokeCircle(24, 24, 7);
+    g.generateTexture('pin_rift', 48, 48); g.clear();
 
     g.destroy();
   }
@@ -215,6 +248,58 @@ export class Pinball extends Phaser.Scene {
   }
 
   // ============================================================
+  // RITE ELEMENTS — rollover lanes, drop-target bank, the rift
+  // ============================================================
+  createRollovers() {
+    const spots = [{ x: 470, y: 190 }, { x: 565, y: 190 }, { x: 660, y: 190 }];
+    for (let i = 0; i < spots.length; i++) {
+      const s = spots[i];
+      const img = this.add.image(s.x, s.y, 'pin_lamp').setDepth(4).setTint(0x2a4a4a);
+      const body = this.matter.add.rectangle(s.x, s.y, 46, 18, {
+        isStatic: true, isSensor: true, label: `roll_${i}`
+      });
+      this.rollLamps.push({ img, body, lit: false });
+    }
+  }
+
+  createDropTargets() {
+    const spots = [{ x: 442, y: 350 }, { x: 442, y: 392 }, { x: 442, y: 434 }];
+    for (let i = 0; i < spots.length; i++) {
+      const s = spots[i];
+      const img = this.add.image(s.x, s.y, 'pin_target').setDepth(4);
+      const body = this.matter.add.rectangle(s.x, s.y, 16, 34, {
+        isStatic: true, restitution: 0.4, label: `target_${i}`
+      });
+      this.dropTargets.push({ img, body, dropped: false });
+    }
+  }
+
+  createRift() {
+    const x = 640, y = 452, r = 22;
+    const img = this.add.image(x, y, 'pin_rift').setDepth(4);
+    const body = this.matter.add.circle(x, y, r, {
+      isStatic: true, isSensor: true, label: 'rift'
+    });
+    this.rift = { img, body, x, y };
+    this.tweens.add({
+      targets: img, scale: { from: 0.9, to: 1.12 },
+      duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
+    });
+  }
+
+  resetRolloverLamps() {
+    for (const l of this.rollLamps) { l.lit = false; l.img.setTint(0x2a4a4a); }
+  }
+
+  resetDropTargets() {
+    for (const t of this.dropTargets) {
+      t.dropped = false;
+      t.body.isSensor = false;
+      t.img.setVisible(true);
+    }
+  }
+
+  // ============================================================
   // FLIPPERS (kinematic; repositioned around a fixed pivot)
   // ============================================================
   createFlippers() {
@@ -298,6 +383,10 @@ export class Pinball extends Phaser.Scene {
       fontFamily: '"Courier New", monospace', fontSize: '15px',
       fontStyle: 'bold', color: '#c9a961'
     }).setOrigin(0, 0.5);
+    this.rankText = this.add.text(640, 82, 'INITIATE', {
+      fontFamily: '"Courier New", monospace', fontSize: '13px',
+      fontStyle: 'bold', color: '#6ad0d0', letterSpacing: 2
+    }).setOrigin(0.5);
     this.ballsText = this.add.text(OUTER_R, 82, 'BALLS —', {
       fontFamily: '"Courier New", monospace', fontSize: '15px',
       fontStyle: 'bold', color: '#c9a961'
@@ -313,6 +402,26 @@ export class Pinball extends Phaser.Scene {
   updateScoreUI() {
     if (this.scoreText) this.scoreText.setText(`SCORE ${this.score}`);
     if (this.ballsText) this.ballsText.setText(this.state === 'IDLE' ? 'BALLS —' : `BALLS ${this.ballsLeft}`);
+  }
+  updateRankUI() {
+    if (this.rankText) this.rankText.setText(rankName(this.rankIndex));
+  }
+  // Show the active rite objective, unless an announcement is on screen.
+  updateObjective() {
+    if (this._announcing) return;
+    this.updateCRT(this.missionEngine.objectiveText());
+  }
+  // Madame Veil speaks — override the CRT for a beat, then revert to the
+  // objective. Punctuated by the eerie sting.
+  veilAnnounce(line) {
+    this._announcing = true;
+    this.updateCRT(line);
+    if (SFX.veilSting) SFX.veilSting();
+    if (this._crtRevertTimer) this._crtRevertTimer.remove();
+    this._crtRevertTimer = this.time.delayedCall(3800, () => {
+      this._announcing = false;
+      this.updateObjective();
+    });
   }
 
   drawPowerMeter() {
@@ -361,8 +470,19 @@ export class Pinball extends Phaser.Scene {
     this.score = 0;
     this.ballsLeft = 3;
     this.startBtn.setVisible(false);
+
+    // Fresh rites for the new game
+    this.missionEngine.reset();
+    this.rankIndex = 0;
+    this._announcing = false;
+    this.resetRolloverLamps();
+    this.resetDropTargets();
+    this.updateRankUI();
     this.updateScoreUI();
+
     this.spawnBall();
+    // Madame Veil sets the first rite
+    this.veilAnnounce(this.missionEngine.current().announce);
   }
 
   spawnBall() {
@@ -461,11 +581,80 @@ export class Pinball extends Phaser.Scene {
         if (!labels.includes('ball')) continue;
         const other = a.label === 'ball' ? b : a;
         const ballBody = a.label === 'ball' ? a : b;
-        if (other.label && other.label.startsWith('bumper_')) {
+        const lbl = other.label || '';
+        if (lbl.startsWith('bumper_')) {
           this.hitBumper(other, ballBody);
+        } else if (lbl.startsWith('roll_')) {
+          this.hitRollover(parseInt(lbl.slice(5), 10));
+        } else if (lbl.startsWith('target_')) {
+          this.hitTarget(parseInt(lbl.slice(7), 10));
+        } else if (lbl === 'rift') {
+          this.hitRift(ballBody);
         }
       }
     });
+  }
+
+  // ---- rite-element hits ----
+  hitRollover(idx) {
+    const lamp = this.rollLamps[idx];
+    if (lamp && !lamp.lit) { lamp.lit = true; lamp.img.setTint(0xffd8a0); }
+    this.registerHit('rollover', idx, 50);
+  }
+
+  hitTarget(idx) {
+    const tgt = this.dropTargets[idx];
+    if (!tgt || tgt.dropped) return;
+    tgt.dropped = true;
+    tgt.body.isSensor = true;              // ball now passes through
+    tgt.img.setVisible(false);
+    if (SFX.bumperPop) SFX.bumperPop();
+    this.registerHit('target', idx, 100);
+  }
+
+  hitRift(ballBody) {
+    // Eject the ball back up toward the bumpers (risk/reward, no stuck ball)
+    M.Body.setVelocity(ballBody, { x: (Math.random() - 0.5) * 6, y: -11 });
+    this.tweens.killTweensOf(this.rift.img);
+    this.rift.img.setScale(1.3);
+    this.tweens.add({ targets: this.rift.img, scale: 1, duration: 260, ease: 'Quad.easeOut' });
+    if (SFX.veilSting) { /* rift uses its own eject cue via bumperPop below */ }
+    if (SFX.bumperPop) SFX.bumperPop();
+    this.registerHit('rift', 0, 150);
+  }
+
+  // Central hook: award base score, feed the mission engine, react.
+  registerHit(trigger, id, baseScore) {
+    this.score += baseScore;
+    const r = this.missionEngine.hit(trigger, id);
+    if (r.matched && r.progressed && !r.complete) {
+      this.updateObjective();
+    }
+    if (r.matched && r.complete) {
+      this.completeRite(r.mission);
+    }
+    this.updateScoreUI();
+  }
+
+  completeRite(mission) {
+    this.score += mission.scoreReward;
+    this.rankIndex = Math.min(8, this.rankIndex + 1);
+    if (SFX.riteComplete) SFX.riteComplete();
+    this.cameras.main.flash(320, 58, 106, 106);  // teal light-show placeholder (full choreography in C3)
+
+    this.missionEngine.advance();
+    const next = this.missionEngine.current();
+    const line = next
+      ? `RITE COMPLETE. ${next.announce}`
+      : 'RITE COMPLETE. the rites are done — you see as she sees.';
+    this.veilAnnounce(line);
+
+    // Fresh element state for the next rite
+    this.resetRolloverLamps();
+    this.resetDropTargets();
+
+    this.updateRankUI();
+    this.updateScoreUI();
   }
 
   hitBumper(bumperBody, ballBody) {
