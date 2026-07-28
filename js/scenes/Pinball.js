@@ -56,8 +56,15 @@ export class Pinball extends Phaser.Scene {
     this.rollLamps   = [];    // { img, body, lit }
     this.dropTargets = [];    // { img, body, dropped }
     this.rift        = null;  // { img, body, x, y }
+    this.showLamps   = [];    // perimeter light-show lamps
     this._announcing = false;
     this._crtRevertTimer = null;
+    this._lastMarrowReward = 0;
+
+    // Per-profile bests (persisted). bestRank = all-time rank ceiling; new
+    // marrow is paid only when you push past it. highScore for the readout.
+    this.bestRank  = GameState.getStat(this.game, 'pinballRank', 0);
+    this.highScore = GameState.getStat(this.game, 'pinballHighScore', 0);
 
     // Each scene owns its own Matter world, so tuning gravity here doesn't
     // leak into Plinko's world.
@@ -74,6 +81,7 @@ export class Pinball extends Phaser.Scene {
     this.createRollovers();
     this.createDropTargets();
     this.createRift();
+    this.createShowLamps();
     this.createFlippers();
     this.createCRT();
     this.createStartButton();
@@ -82,7 +90,25 @@ export class Pinball extends Phaser.Scene {
     this.setupInput();
     this.setupCollisions();
 
-    this.updateCRT('THE ORRERY hums. insert 5 chips to wake it.');
+    const idleMsg = this.highScore > 0
+      ? `THE ORRERY hums. best ${this.highScore} · ${rankName(this.bestRank)}. insert 5 chips.`
+      : 'THE ORRERY hums. insert 5 chips to wake it.';
+    this.updateCRT(idleMsg);
+  }
+
+  // Award marrow the first time the player pushes their all-time rank ceiling
+  // (milestone reward, not grindable). Sets _lastMarrowReward for the announce.
+  awardRankMarrow() {
+    if (this.rankIndex > this.bestRank) {
+      const gained = this.rankIndex - this.bestRank;
+      this.bestRank = this.rankIndex;
+      GameState.setStat(this.game, 'pinballRank', this.bestRank);
+      const reward = 2 * gained;
+      this.registry.set('marrow', this.registry.get('marrow') + reward);
+      this._lastMarrowReward = reward;
+    } else {
+      this._lastMarrowReward = 0;
+    }
   }
 
   // ============================================================
@@ -297,6 +323,44 @@ export class Pinball extends Phaser.Scene {
       t.body.isSensor = false;
       t.img.setVisible(true);
     }
+  }
+
+  // Perimeter light-show lamps (Space Cadet's signature choreography).
+  createShowLamps() {
+    const spots = [
+      { x: 430, y: 145 }, { x: 510, y: 145 }, { x: 590, y: 145 }, { x: 690, y: 145 }, { x: 770, y: 145 },
+      { x: 410, y: 280 }, { x: 410, y: 420 }, { x: 410, y: 560 },
+      { x: 810, y: 280 }, { x: 810, y: 420 }, { x: 810, y: 560 }
+    ];
+    for (const s of spots) {
+      const img = this.add.image(s.x, s.y, 'pin_lamp').setDepth(3).setTint(0x223a3a).setScale(0.7);
+      this.showLamps.push(img);
+    }
+  }
+
+  // Chase around the perimeter, then an all-flash. Fired on rite completion.
+  runLightShow() {
+    this.tweens.killTweensOf(this.showLamps);
+    this.showLamps.forEach((lamp, i) => {
+      this.time.delayedCall(i * 45, () => {
+        lamp.setTint(0xffd8a0);
+        this.tweens.add({
+          targets: lamp, scale: 1.1, duration: 120, yoyo: true, ease: 'Quad.easeOut',
+          onComplete: () => lamp.setTint(0x223a3a)
+        });
+      });
+    });
+    const chaseTime = this.showLamps.length * 45 + 150;
+    this.time.delayedCall(chaseTime, () => {
+      for (const lamp of this.showLamps) {
+        lamp.setTint(0x6ad0d0);
+        this.tweens.add({
+          targets: lamp, scale: 1.25, duration: 200, yoyo: true, repeat: 1, ease: 'Sine.easeInOut',
+          onComplete: () => { lamp.setTint(0x223a3a); lamp.setScale(0.7); }
+        });
+      }
+    });
+    this.cameras.main.flash(280, 58, 106, 106);
   }
 
   // ============================================================
@@ -529,7 +593,20 @@ export class Pinball extends Phaser.Scene {
 
   gameOver() {
     this.state = 'GAMEOVER';
-    this.updateCRT(`the veil closes. final score ${this.score}.`);
+    // Stop any pending rite-announce revert from overwriting the summary.
+    this._announcing = false;
+    if (this._crtRevertTimer) { this._crtRevertTimer.remove(); this._crtRevertTimer = null; }
+
+    let msg;
+    if (this.score > this.highScore) {
+      this.highScore = this.score;
+      GameState.setStat(this.game, 'pinballHighScore', this.highScore);
+      msg = `NEW BEST — ${this.score}. the veil remembers you.`;
+    } else {
+      msg = `the veil closes. final score ${this.score}` +
+            (this.highScore > 0 ? ` (best ${this.highScore}).` : '.');
+    }
+    this.updateCRT(msg);
     this.updateScoreUI();
     // C4 converts score → chip payout; for now just offer another game.
     this.startTxt.setText(`PLAY AGAIN — ${ANTE} CHIPS`);
@@ -640,13 +717,17 @@ export class Pinball extends Phaser.Scene {
     this.score += mission.scoreReward;
     this.rankIndex = Math.min(8, this.rankIndex + 1);
     if (SFX.riteComplete) SFX.riteComplete();
-    this.cameras.main.flash(320, 58, 106, 106);  // teal light-show placeholder (full choreography in C3)
+    this.runLightShow();
+    this.awardRankMarrow();   // marrow when pushing your all-time rank ceiling
 
     this.missionEngine.advance();
     const next = this.missionEngine.current();
-    const line = next
+    let line = next
       ? `RITE COMPLETE. ${next.announce}`
       : 'RITE COMPLETE. the rites are done — you see as she sees.';
+    if (this._lastMarrowReward > 0) {
+      line = `${rankName(this.rankIndex)} — the veil grants +${this._lastMarrowReward} marrow. ` + line;
+    }
     this.veilAnnounce(line);
 
     // Fresh element state for the next rite
@@ -666,10 +747,9 @@ export class Pinball extends Phaser.Scene {
     const len = Math.max(1, Math.hypot(dx, dy));
     const speed = 9;
     M.Body.setVelocity(ballBody, { x: (dx / len) * speed, y: (dy / len) * speed });
-    // Score + juice
-    this.score += 100;
-    this.updateScoreUI();
+    // Score + feed the 'bumper' rite (registerHit adds the base score)
     if (SFX.bumperPop) SFX.bumperPop();
+    this.registerHit('bumper', 0, 100);
     entry.img.setTexture('pin_bumper_lit');
     this.tweens.killTweensOf(entry.img);
     entry.img.setScale(1.15);

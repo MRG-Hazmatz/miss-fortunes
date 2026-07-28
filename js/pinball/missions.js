@@ -5,34 +5,35 @@
 // is struck, and reacts to the returned events (announce, score, rank-up,
 // light show).
 //
-// C2 wires three rites, run sequentially. C3 expands the catalog to ~10.
+// Two kinds of rite:
+//   - unique-set (counted:false): need N DISTINCT ids (e.g. all 3 rollover
+//     lanes, all 3 drop targets). Re-hitting the same id doesn't advance.
+//   - counted (counted:true): need N hits total (e.g. feed the rift 5 times,
+//     wake the bumpers 15 times). Every hit advances.
+//
+// The catalog runs sequentially; completing a rite advances a rank.
 
 export const RITES = [
-  {
-    id: 'candles',
-    name: 'LIGHT THE CANDLES',
-    // Madame Veil's announcement line, shown in the CRT ticker + sting.
-    announce: 'the veil stirs. light all three candles — roll the upper lanes.',
-    trigger: 'rollover',   // unique rollover-lane ids
-    targetCount: 3,
-    scoreReward: 500
-  },
-  {
-    id: 'seance',
-    name: 'CONDUCT THE SÉANCE',
-    announce: 'strike the three sigils. begin the séance.',
-    trigger: 'target',     // unique drop-target ids
-    targetCount: 3,
-    scoreReward: 1000
-  },
-  {
-    id: 'rift',
-    name: 'OPEN THE RIFT',
-    announce: 'feed the rift. five times. tear it open.',
-    trigger: 'rift',       // counted hits
-    targetCount: 5,
-    scoreReward: 2000
-  }
+  { id: 'candles',  name: 'LIGHT THE CANDLES',  trigger: 'rollover', counted: false, targetCount: 3,  scoreReward: 500,
+    announce: 'the veil stirs. light all three candles — roll the upper lanes.' },
+  { id: 'seance',   name: 'CONDUCT THE SÉANCE',  trigger: 'target',   counted: false, targetCount: 3,  scoreReward: 1000,
+    announce: 'strike the three sigils. begin the séance.' },
+  { id: 'rift1',    name: 'OPEN THE RIFT',       trigger: 'rift',     counted: true,  targetCount: 5,  scoreReward: 2000,
+    announce: 'feed the rift. five times. tear it open.' },
+  { id: 'sleepers', name: 'WAKE THE SLEEPERS',   trigger: 'bumper',   counted: true,  targetCount: 15, scoreReward: 1500,
+    announce: 'the sleepers stir. strike the stones fifteen times — wake them.' },
+  { id: 'candles2', name: 'RELIGHT THE CANDLES', trigger: 'rollover', counted: false, targetCount: 3,  scoreReward: 1500,
+    announce: 'the candles guttered. light them again — she is watching now.' },
+  { id: 'seance2',  name: 'THE SECOND SÉANCE',   trigger: 'target',   counted: false, targetCount: 3,  scoreReward: 2500,
+    announce: 'the dead lean closer. strike the sigils once more.' },
+  { id: 'rift2',    name: 'WIDEN THE RIFT',      trigger: 'rift',     counted: true,  targetCount: 8,  scoreReward: 3500,
+    announce: 'wider. eight feedings. let something through.' },
+  { id: 'familiar', name: 'BIND THE FAMILIAR',   trigger: 'bumper',   counted: true,  targetCount: 25, scoreReward: 3000,
+    announce: 'it will not come willingly. twenty-five strikes to bind it.' },
+  { id: 'seance3',  name: 'THE FINAL SÉANCE',    trigger: 'target',   counted: false, targetCount: 3,  scoreReward: 4000,
+    announce: 'the last séance. she is almost here. strike the sigils.' },
+  { id: 'torn',     name: 'THE VEIL TORN',       trigger: 'rift',     counted: true,  targetCount: 12, scoreReward: 6000,
+    announce: 'now. tear it fully. twelve feedings and the veil is yours.' }
 ];
 
 export class MissionEngine {
@@ -43,8 +44,8 @@ export class MissionEngine {
 
   reset() {
     this.index = 0;
-    this.progress = new Set();  // unique ids for rollover / target rites
-    this.count = 0;             // running count for the rift rite
+    this.progress = new Set();  // unique ids (non-counted rites)
+    this.count = 0;             // running total (counted rites)
     this.allComplete = false;
   }
 
@@ -52,25 +53,21 @@ export class MissionEngine {
     return this.allComplete ? null : this.rites[this.index];
   }
 
-  // How much of the active rite is done.
   have() {
     const m = this.current();
     if (!m) return 0;
-    return m.trigger === 'rift' ? this.count : this.progress.size;
+    return m.counted ? this.count : this.progress.size;
   }
 
   // Register a table hit. Returns:
   //   { matched, progressed, complete, mission, have, need }
-  // matched   = this hit is relevant to the active rite
-  // progressed= this hit advanced progress (new lane/target, or a rift feed)
-  // complete  = the active rite is now finished
   hit(trigger, id) {
     const m = this.current();
     if (!m || m.trigger !== trigger) {
       return { matched: false, progressed: false, complete: false };
     }
     let progressed = false;
-    if (trigger === 'rift') {
+    if (m.counted) {
       this.count++;
       progressed = true;
     } else if (!this.progress.has(id)) {
@@ -82,7 +79,6 @@ export class MissionEngine {
     return { matched: true, progressed, complete, mission: m, have, need: m.targetCount };
   }
 
-  // Move to the next rite (call after handling a completion).
   advance() {
     this.progress = new Set();
     this.count = 0;
@@ -93,7 +89,6 @@ export class MissionEngine {
     }
   }
 
-  // One-line objective for the CRT readout.
   objectiveText() {
     const m = this.current();
     if (!m) return 'ALL RITES COMPLETE — the veil is yours';

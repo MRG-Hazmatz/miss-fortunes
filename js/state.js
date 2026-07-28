@@ -225,6 +225,31 @@ export const GameState = {
     return true;
   },
 
+  // ===== Per-slot stats =====
+  // Generic persistent per-profile values (pinball high score + best rank
+  // today; reusable for any future per-game best). Stored under slot.stats.
+  getStat(game, key, fallback = 0) {
+    const data = this.loadStorage();
+    const idx = data.activeSlot;
+    if (idx == null) return fallback;
+    const slot = data.slots[idx];
+    if (!slot || !slot.stats || slot.stats[key] === undefined) return fallback;
+    return slot.stats[key];
+  },
+
+  setStat(game, key, value) {
+    const data = this.loadStorage();
+    const idx = data.activeSlot;
+    if (idx == null) return false;
+    const slot = data.slots[idx];
+    if (!slot) return false;
+    if (!slot.stats) slot.stats = {};
+    slot.stats[key] = value;
+    this.saveStorage(data);
+    game.events.emit('state-saved');
+    return true;
+  },
+
   // Hydrate the registry from a slot. Returns true if the slot existed.
   selectSlot(game, slotIdx) {
     const data = this.loadStorage();
