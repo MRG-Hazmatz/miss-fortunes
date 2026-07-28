@@ -3,6 +3,7 @@ import { GameState } from '../state.js';
 import { SFX } from '../audio.js';
 import { MissionEngine } from '../pinball/missions.js';
 import { rankName } from '../pinball/ranks.js';
+import { scoreToChips, MULTIBALL_RANK } from '../pinball/payout.js';
 
 // Pinball.js — THE ORRERY. Space Cadet's systems + feel, occult re-skin.
 // C1: playable table — plunger, two flippers, pop bumpers, 3-ball game,
@@ -60,6 +61,11 @@ export class Pinball extends Phaser.Scene {
     this._announcing = false;
     this._crtRevertTimer = null;
     this._lastMarrowReward = 0;
+
+    // C4: multiball + tilt
+    this.multiballActive = false;
+    this.tilted     = false;
+    this.tiltMeter  = 0;
 
     // Per-profile bests (persisted). bestRank = all-time rank ceiling; new
     // marrow is paid only when you push past it. highScore for the readout.
@@ -162,6 +168,10 @@ export class Pinball extends Phaser.Scene {
     g.lineStyle(1, 0x6ad0d0, 0.5); g.strokeCircle(24, 24, 14);
     g.lineStyle(1, 0x8b2020, 0.5); g.strokeCircle(24, 24, 7);
     g.generateTexture('pin_rift', 48, 48); g.clear();
+
+    // Spark — tiny dot for burst particles (tinted at runtime)
+    g.fillStyle(0xffffff, 1); g.fillCircle(3, 3, 3);
+    g.generateTexture('pin_spark', 6, 6); g.clear();
 
     g.destroy();
   }
@@ -363,6 +373,24 @@ export class Pinball extends Phaser.Scene {
     this.cameras.main.flash(280, 58, 106, 106);
   }
 
+  // Small burst of dots flying outward — bumper / rift juice.
+  spark(x, y, tint = 0xffd8a0) {
+    for (let i = 0; i < 5; i++) {
+      const dot = this.add.image(x, y, 'pin_spark').setDepth(10).setTint(tint);
+      const ang = Math.random() * Math.PI * 2;
+      const dist = 16 + Math.random() * 24;
+      this.tweens.add({
+        targets: dot,
+        x: x + Math.cos(ang) * dist,
+        y: y + Math.sin(ang) * dist,
+        alpha: 0, scale: 0.3,
+        duration: 260 + Math.random() * 160,
+        ease: 'Quad.easeOut',
+        onComplete: () => dot.destroy()
+      });
+    }
+  }
+
   // ============================================================
   // FLIPPERS (kinematic; repositioned around a fixed pivot)
   // ============================================================
@@ -397,6 +425,7 @@ export class Pinball extends Phaser.Scene {
   }
 
   flip(side, down) {
+    if (this.tilted && down) return;   // dead flippers after a tilt
     const f = this.flippers[side];
     if (!f || f.held === down) return;
     f.held = down;
@@ -539,6 +568,9 @@ export class Pinball extends Phaser.Scene {
     this.missionEngine.reset();
     this.rankIndex = 0;
     this._announcing = false;
+    this.multiballActive = false;
+    this.tilted = false;
+    this.tiltMeter = 0;
     this.resetRolloverLamps();
     this.resetDropTargets();
     this.updateRankUI();
@@ -552,6 +584,8 @@ export class Pinball extends Phaser.Scene {
   spawnBall() {
     this.state = 'READY';
     this.charge = 0;
+    this.tilted = false;
+    this.tiltMeter = 0;
     const ball = this.matter.add.image(LANE_X, 660, 'pin_ball', null, {
       shape: { type: 'circle', radius: BALL_R },
       restitution: 0.45, friction: 0.02, frictionAir: 0.006,
@@ -581,8 +615,12 @@ export class Pinball extends Phaser.Scene {
     const idx = this.balls.indexOf(ball);
     if (idx >= 0) this.balls.splice(idx, 1);
     ball.destroy();
-    if (SFX.drain) SFX.drain();
 
+    // Multiball: a ball is only "lost" when every ball has drained.
+    if (this.balls.length > 0) return;
+
+    this.multiballActive = false;
+    if (SFX.drain) SFX.drain();
     this.ballsLeft--;
     if (this.ballsLeft > 0) {
       this.spawnBall();
@@ -591,19 +629,64 @@ export class Pinball extends Phaser.Scene {
     }
   }
 
+  // ---- Multiball ----
+  triggerMultiball() {
+    this.multiballActive = true;
+    for (let i = 0; i < 2; i++) this.spawnExtraBall();
+    this.cameras.main.shake(400, 0.008);
+    if (SFX.riteComplete) SFX.riteComplete();
+    this.veilAnnounce('MULTIBALL — the veil splits. keep them all alive.');
+  }
+
+  spawnExtraBall() {
+    const x = 480 + Math.random() * 280;
+    const ball = this.matter.add.image(x, 200, 'pin_ball', null, {
+      shape: { type: 'circle', radius: BALL_R },
+      restitution: 0.45, friction: 0.02, frictionAir: 0.006,
+      density: 0.02, label: 'ball'
+    }).setDepth(9);
+    M.Body.setVelocity(ball.body, { x: (Math.random() - 0.5) * 4, y: 4 });
+    this.balls.push(ball);
+  }
+
+  // ---- Nudge + tilt ----
+  nudge() {
+    if (this.state !== 'PLAY' || this.tilted) return;
+    for (const ball of this.balls) {
+      const v = ball.body.velocity;
+      M.Body.setVelocity(ball.body, { x: v.x + (Math.random() - 0.5) * 3, y: v.y - 2.5 });
+    }
+    this.tiltMeter += 1;
+    this.cameras.main.shake(80, 0.003);
+    if (this.tiltMeter >= 3) this.tilt();
+  }
+
+  tilt() {
+    // Release any held flippers first, THEN go dead.
+    this.flip('left', false);
+    this.flip('right', false);
+    this.tilted = true;
+    if (SFX.tilt) SFX.tilt();
+    this.veilAnnounce('THE DEALER NOTICED. the flippers go dead.');
+  }
+
   gameOver() {
     this.state = 'GAMEOVER';
     // Stop any pending rite-announce revert from overwriting the summary.
     this._announcing = false;
     if (this._crtRevertTimer) { this._crtRevertTimer.remove(); this._crtRevertTimer = null; }
 
+    // The parlor pays out your run.
+    const payout = scoreToChips(this.score);
+    if (payout > 0) this.registry.set('chips', this.registry.get('chips') + payout);
+
     let msg;
     if (this.score > this.highScore) {
       this.highScore = this.score;
       GameState.setStat(this.game, 'pinballHighScore', this.highScore);
-      msg = `NEW BEST — ${this.score}. the veil remembers you.`;
+      msg = `NEW BEST — ${this.score}. the parlor pays ${payout} chips.`;
     } else {
-      msg = `the veil closes. final score ${this.score}` +
+      msg = `final score ${this.score} — the parlor pays ${payout} chips` +
             (this.highScore > 0 ? ` (best ${this.highScore}).` : '.');
     }
     this.updateCRT(msg);
@@ -637,6 +720,14 @@ export class Pinball extends Phaser.Scene {
 
     kb.on('keydown-SPACE', () => { if (this.state === 'READY') this.charging = true; });
     kb.on('keyup-SPACE', () => { if (this.state === 'READY') this.launchBall(); });
+
+    kb.on('keydown-N', () => this.nudge());
+
+    // Controls hint on the left cabinet panel
+    this.add.text(20, 300,
+      'CONTROLS\n\nZ / ←  left flip\n/ / →  right flip\nSPACE  plunge\nN  nudge\n\n(nudge too much\nand the dealer\nnotices)',
+      { fontFamily: '"Courier New", monospace', fontSize: '12px', color: '#6a5030', lineSpacing: 5 }
+    ).setDepth(2);
 
     // Stop arrow/space/slash from scrolling the page or triggering quick-find
     this.input.keyboard.addCapture([
@@ -695,8 +786,8 @@ export class Pinball extends Phaser.Scene {
     this.tweens.killTweensOf(this.rift.img);
     this.rift.img.setScale(1.3);
     this.tweens.add({ targets: this.rift.img, scale: 1, duration: 260, ease: 'Quad.easeOut' });
-    if (SFX.veilSting) { /* rift uses its own eject cue via bumperPop below */ }
     if (SFX.bumperPop) SFX.bumperPop();
+    this.spark(this.rift.x, this.rift.y, 0x8b2020);
     this.registerHit('rift', 0, 150);
   }
 
@@ -736,6 +827,13 @@ export class Pinball extends Phaser.Scene {
 
     this.updateRankUI();
     this.updateScoreUI();
+    this.cameras.main.shake(200, 0.004);
+
+    // Reaching the multiball rank in a game splits the ball. Announced last
+    // so the multiball line wins the CRT over the rite-complete line.
+    if (!this.multiballActive && this.rankIndex >= MULTIBALL_RANK && this.state === 'PLAY') {
+      this.triggerMultiball();
+    }
   }
 
   hitBumper(bumperBody, ballBody) {
@@ -749,6 +847,7 @@ export class Pinball extends Phaser.Scene {
     M.Body.setVelocity(ballBody, { x: (dx / len) * speed, y: (dy / len) * speed });
     // Score + feed the 'bumper' rite (registerHit adds the base score)
     if (SFX.bumperPop) SFX.bumperPop();
+    this.spark(entry.x, entry.y, 0x6ad0d0);
     this.registerHit('bumper', 0, 100);
     entry.img.setTexture('pin_bumper_lit');
     this.tweens.killTweensOf(entry.img);
@@ -768,17 +867,22 @@ export class Pinball extends Phaser.Scene {
       this.charge = Math.min(1, this.charge + delta / 900);
       this.drawPowerMeter();
     }
+    // Tilt meter cools down over time — nudges must be rapid to tilt.
+    if (this.state === 'PLAY' && this.tiltMeter > 0) {
+      this.tiltMeter = Math.max(0, this.tiltMeter - delta / 700);
+    }
+
     // Drain detection (only real balls in the field, not the lane rest)
     if (this.state === 'PLAY') {
       for (const ball of [...this.balls]) {
         const p = ball.body.position;
-        // A ball that failed to clear the lane and settled back on the lane
-        // floor gets re-armed for another plunge (authentic + prevents a
-        // stuck ball), rather than draining.
         const inLane = p.x > DIVIDER_X + 2;
         const v = ball.body.velocity;
         const slow = Math.hypot(v.x, v.y) < 0.6;
-        if (inLane && slow && p.y > 620) {
+        // A single ball that failed to clear the lane and settled back on the
+        // lane floor gets re-armed for another plunge (authentic + prevents a
+        // stuck ball). Never during multiball (>1 ball in play).
+        if (inLane && slow && p.y > 620 && this.balls.length === 1) {
           this.state = 'READY';
           this.charge = 0;
           this.updateCRT('reload the sphere — hold SPACE, then release');

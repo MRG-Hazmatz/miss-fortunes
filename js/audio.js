@@ -508,6 +508,22 @@ export const SFX = {
     sh.start(t); sh.stop(t + 1.25);
   },
 
+  // Tilt — "the dealer noticed." Harsh low buzz with a sour detuned edge.
+  tilt() {
+    this.ensure();
+    const t = this.ctx.currentTime;
+    [90, 94].forEach(f => {   // two nearly-equal freqs → beating dissonance
+      const osc = this.ctx.createOscillator();
+      const g = this.ctx.createGain();
+      osc.connect(g); g.connect(this.ctx.destination);
+      osc.type = 'square';
+      osc.frequency.value = f;
+      g.gain.setValueAtTime(0.08, t);
+      g.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
+      osc.start(t); osc.stop(t + 0.65);
+    });
+  },
+
   // A rite is completed — mystical ascending arpeggio, bright + rewarding.
   riteComplete() {
     this.ensure();
