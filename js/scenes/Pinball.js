@@ -23,6 +23,8 @@ const PF_LEFT   = 400;      // inner edge of left wall
 const DIVIDER_X = 824;      // wall between playfield and plunger lane
 const OUTER_R   = 880;      // outer right wall
 const LANE_X    = 852;      // plunger lane center
+const LANE_OPEN_Y = 340;    // divider top: above this the lane opens to the field
+const KICK_Y      = 330;    // a launched ball crossing this gets swept left
 
 const BALL_R = 11;
 const ANTE   = 5;           // chips to start a 3-ball game
@@ -57,6 +59,7 @@ export class Pinball extends Phaser.Scene {
     this.rollLamps   = [];    // { img, body, lit }
     this.dropTargets = [];    // { img, body, dropped }
     this.rift        = null;  // { img, body, x, y }
+    this.slings      = [];    // { id, body, g, x, y, kick }
     this.showLamps   = [];    // perimeter light-show lamps
     this._announcing = false;
     this._crtRevertTimer = null;
@@ -87,6 +90,7 @@ export class Pinball extends Phaser.Scene {
     this.createRollovers();
     this.createDropTargets();
     this.createRift();
+    this.createSlingshots();
     this.createShowLamps();
     this.createFlippers();
     this.createCRT();
@@ -212,9 +216,12 @@ export class Pinball extends Phaser.Scene {
     g.strokeRect(PF_LEFT - 8, PF_TOP, (OUTER_R + 8) - (PF_LEFT - 8), PF_BOTTOM - PF_TOP);
     // Plunger-lane divider rail
     g.lineStyle(4, 0xc9a961, 0.5);
-    g.lineBetween(DIVIDER_X, 210, DIVIDER_X, PF_BOTTOM);
-    // Top-right deflector rail (guides launched ball into the field)
-    g.lineBetween(886, 135, 700, 205);
+    g.lineBetween(DIVIDER_X, LANE_OPEN_Y, DIVIDER_X, PF_BOTTOM);
+    // Curved launch-guide hint at the lane top (where the ball sweeps left)
+    g.lineStyle(3, 0xc9a961, 0.35);
+    g.beginPath();
+    g.arc(DIVIDER_X, LANE_OPEN_Y, 40, -Math.PI / 2, 0);
+    g.strokePath();
     // Inlane rails toward the flippers
     g.lineStyle(4, 0xc9a961, 0.45);
     g.lineBetween(PF_LEFT - 4, 560, LEFT_PIVOT.x - 6, 622);
@@ -253,11 +260,10 @@ export class Pinball extends Phaser.Scene {
     this.wall(PF_LEFT - 8, midY, 16, hFull);
     this.wall((PF_LEFT + OUTER_R) / 2, PF_TOP - 4, (OUTER_R + 8) - (PF_LEFT - 8), 12);
     this.wall(OUTER_R + 6, midY, 16, hFull);
-    // Plunger-lane divider (top open above y=210 so a launched ball exits)
-    this.wall(DIVIDER_X, (210 + PF_BOTTOM) / 2, 12, PF_BOTTOM - 210);
-    // Top-right deflector — spans from the outer wall down-left into the
-    // field so a ball launched up the lane is always caught and redirected.
-    this.wall(793, 170, 199, 12, -21);
+    // Plunger-lane divider — open above LANE_OPEN_Y so a launched ball
+    // clears it; the scripted launch-assist (in update) then sweeps the ball
+    // left into the playfield, so no top-of-lane deflector geometry is needed.
+    this.wall(DIVIDER_X, (LANE_OPEN_Y + PF_BOTTOM) / 2, 12, PF_BOTTOM - LANE_OPEN_Y);
     // Plunger-lane floor (ball rests here before launch)
     this.wall(LANE_X, 690, 44, 12);
     // Lower angled inlane walls funneling to the flippers
@@ -321,6 +327,42 @@ export class Pinball extends Phaser.Scene {
       targets: img, scale: { from: 0.9, to: 1.12 },
       duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.easeInOut'
     });
+  }
+
+  // Slingshots — bouncy kickers flanking the flippers. They punt the ball
+  // back toward center-up, keeping it alive (Space Cadet's lower-field life).
+  createSlingshots() {
+    const defs = [
+      { id: 'L', x: 498, y: 560, angle: 62,  kick: { x: 7.5, y: -8.5 } },
+      { id: 'R', x: 702, y: 560, angle: -62, kick: { x: -7.5, y: -8.5 } }
+    ];
+    for (const d of defs) {
+      const body = this.matter.add.rectangle(d.x, d.y, 74, 14, {
+        isStatic: true, angle: Phaser.Math.DegToRad(d.angle),
+        restitution: 0.6, friction: 0.02, label: `sling_${d.id}`
+      });
+      const rad = Phaser.Math.DegToRad(d.angle);
+      const hx = Math.cos(rad) * 37, hy = Math.sin(rad) * 37;
+      const g = this.add.graphics().setDepth(4);
+      g.lineStyle(7, 0x8a4a5a, 0.9);
+      g.lineBetween(d.x - hx, d.y - hy, d.x + hx, d.y + hy);
+      g.lineStyle(2, 0xffd8a0, 0.5);
+      g.lineBetween(d.x - hx, d.y - hy, d.x + hx, d.y + hy);
+      this.slings.push({ ...d, body, g });
+    }
+  }
+
+  hitSlingshot(id, ballBody) {
+    const s = this.slings.find(x => x.id === id);
+    if (!s) return;
+    M.Body.setVelocity(ballBody, s.kick);
+    this.score += 25;
+    this.updateScoreUI();
+    if (SFX.bumperPop) SFX.bumperPop();
+    this.spark(s.x, s.y, 0xff9a5a);
+    this.tweens.killTweensOf(s.g);
+    s.g.setAlpha(1);
+    this.tweens.add({ targets: s.g, alpha: 0.55, duration: 140, yoyo: true });
   }
 
   resetRolloverLamps() {
@@ -601,8 +643,9 @@ export class Pinball extends Phaser.Scene {
     const ball = this.balls[this.balls.length - 1];
     if (!ball) return;
     const power = Math.max(0.2, this.charge);
-    // Strong enough that even a light plunge clears the lane into the field.
-    M.Body.setVelocity(ball.body, { x: 0, y: -(21 + power * 17) });
+    // Strong enough that even a light plunge clears the divider top (the
+    // launch-assist in update then sweeps it into the field).
+    M.Body.setVelocity(ball.body, { x: 0, y: -(30 + power * 14) });
     if (SFX.plungerLaunch) SFX.plungerLaunch(power);
     this.state = 'PLAY';
     this.charge = 0;
@@ -758,6 +801,10 @@ export class Pinball extends Phaser.Scene {
           this.hitTarget(parseInt(lbl.slice(7), 10));
         } else if (lbl === 'rift') {
           this.hitRift(ballBody);
+        } else if (lbl === 'sling_L') {
+          this.hitSlingshot('L', ballBody);
+        } else if (lbl === 'sling_R') {
+          this.hitSlingshot('R', ballBody);
         }
       }
     });
@@ -872,22 +919,35 @@ export class Pinball extends Phaser.Scene {
       this.tiltMeter = Math.max(0, this.tiltMeter - delta / 700);
     }
 
-    // Drain detection (only real balls in the field, not the lane rest)
+    // Ball lifecycle (launch-assist, re-arm fallback, drain)
     if (this.state === 'PLAY') {
       for (const ball of [...this.balls]) {
         const p = ball.body.position;
-        const inLane = p.x > DIVIDER_X + 2;
         const v = ball.body.velocity;
-        const slow = Math.hypot(v.x, v.y) < 0.6;
-        // A single ball that failed to clear the lane and settled back on the
-        // lane floor gets re-armed for another plunge (authentic + prevents a
-        // stuck ball). Never during multiball (>1 ball in play).
-        if (inLane && slow && p.y > 620 && this.balls.length === 1) {
+        const inLane = p.x > DIVIDER_X + 2;
+
+        // Launch-assist: the first time a launched ball clears the divider
+        // top, sweep it left into the playfield. Bulletproof — the ball can
+        // never get trapped bouncing in the lane again.
+        if (inLane && !ball._kicked && p.y < KICK_Y) {
+          M.Body.setVelocity(ball.body, { x: -9, y: -2 });
+          ball._kicked = true;
+          continue;
+        }
+
+        // Re-arm fallback: a single ball that truly settled back at the lane
+        // floor (a dud plunge) gets another go. Tighter thresholds than
+        // before so it no longer false-fires mid-bounce.
+        const slow = Math.hypot(v.x, v.y) < 0.4;
+        if (inLane && slow && p.y > 655 && this.balls.length === 1) {
           this.state = 'READY';
           this.charge = 0;
+          ball._kicked = false;
           this.updateCRT('reload the sphere — hold SPACE, then release');
           continue;
         }
+
+        // Drain (in the field, below the flippers)
         if (p.y > PF_BOTTOM - 6 && !inLane) {
           this.drainBall(ball);
         }
